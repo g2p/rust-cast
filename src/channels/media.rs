@@ -16,6 +16,7 @@ const CHANNEL_NAMESPACE: &str = "urn:x-cast:com.google.cast.media";
 
 const MESSAGE_TYPE_GET_STATUS: &str = "GET_STATUS";
 const MESSAGE_TYPE_LOAD: &str = "LOAD";
+const MESSAGE_TYPE_QUEUE_LOAD: &str = "QUEUE_LOAD";
 const MESSAGE_TYPE_PLAY: &str = "PLAY";
 const MESSAGE_TYPE_PAUSE: &str = "PAUSE";
 const MESSAGE_TYPE_STOP: &str = "STOP";
@@ -70,6 +71,60 @@ pub enum Metadata {
     TvShow(TvShowMediaMetadata),
     MusicTrack(MusicTrackMediaMetadata),
     Photo(PhotoMediaMetadata),
+}
+
+impl Metadata {
+    fn encode(&self) -> proxies::media::Metadata {
+        match self {
+            Metadata::Generic(ref x) => proxies::media::Metadata {
+                title: x.title.clone(),
+                subtitle: x.subtitle.clone(),
+                images: x.images.iter().map(|i| i.encode()).collect(),
+                release_date: x.release_date.clone(),
+                ..proxies::media::Metadata::new(0)
+            },
+            Metadata::Movie(ref x) => proxies::media::Metadata {
+                title: x.title.clone(),
+                subtitle: x.subtitle.clone(),
+                studio: x.studio.clone(),
+                images: x.images.iter().map(|i| i.encode()).collect(),
+                release_date: x.release_date.clone(),
+                ..proxies::media::Metadata::new(1)
+            },
+            Metadata::TvShow(ref x) => proxies::media::Metadata {
+                series_title: x.series_title.clone(),
+                subtitle: x.episode_title.clone(),
+                season: x.season,
+                episode: x.episode,
+                images: x.images.iter().map(|i| i.encode()).collect(),
+                original_air_date: x.original_air_date.clone(),
+                ..proxies::media::Metadata::new(2)
+            },
+            Metadata::MusicTrack(ref x) => proxies::media::Metadata {
+                album_name: x.album_name.clone(),
+                title: x.title.clone(),
+                album_artist: x.album_artist.clone(),
+                artist: x.artist.clone(),
+                composer: x.composer.clone(),
+                track_number: x.track_number,
+                disc_number: x.disc_number,
+                images: x.images.iter().map(|i| i.encode()).collect(),
+                release_date: x.release_date.clone(),
+                ..proxies::media::Metadata::new(3)
+            },
+            Metadata::Photo(ref x) => proxies::media::Metadata {
+                title: x.title.clone(),
+                artist: x.artist.clone(),
+                location: x.location.clone(),
+                latitude: x.latitude_longitude.map(|coord| coord.0),
+                longitude: x.latitude_longitude.map(|coord| coord.1),
+                width: x.dimensions.map(|dims| dims.0),
+                height: x.dimensions.map(|dims| dims.1),
+                creation_date_time: x.creation_date_time.clone(),
+                ..proxies::media::Metadata::new(4)
+            },
+        }
+    }
 }
 
 /// Generic media metadata.
@@ -318,6 +373,37 @@ pub struct Media {
     pub duration: Option<f32>,
 }
 
+impl Media {
+    fn encode(&self) -> proxies::media::Media {
+        let metadata = self.metadata.as_ref().map(|m| m.encode());
+
+        proxies::media::Media {
+            content_id: self.content_id.clone(),
+            stream_type: self.stream_type.to_string(),
+            content_type: self.content_type.clone(),
+            metadata,
+            duration: self.duration,
+        }
+    }
+}
+
+/// One item in a queue
+#[derive(Clone, Debug)]
+pub struct QueueItem {
+    /// The item as media
+    pub media: Media,
+}
+
+/// A queue of items to play in sequence
+#[derive(Clone, Debug)]
+pub struct MediaQueue {
+    /// Every item in the queue, in order
+    pub items: Vec<QueueItem>,
+    /// Array index of the first item to be played
+    /// Starts at zero.
+    pub start_index: u16,
+}
+
 /// Describes the current status of the media artifact with respect to the session.
 #[derive(Clone, Debug)]
 pub struct Status {
@@ -512,68 +598,12 @@ where
     {
         let request_id = self.message_manager.generate_request_id();
 
-        let metadata = media.metadata.as_ref().map(|m| match *m {
-            Metadata::Generic(ref x) => proxies::media::Metadata {
-                title: x.title.clone(),
-                subtitle: x.subtitle.clone(),
-                images: x.images.iter().map(|i| i.encode()).collect(),
-                release_date: x.release_date.clone(),
-                ..proxies::media::Metadata::new(0)
-            },
-            Metadata::Movie(ref x) => proxies::media::Metadata {
-                title: x.title.clone(),
-                subtitle: x.subtitle.clone(),
-                studio: x.studio.clone(),
-                images: x.images.iter().map(|i| i.encode()).collect(),
-                release_date: x.release_date.clone(),
-                ..proxies::media::Metadata::new(1)
-            },
-            Metadata::TvShow(ref x) => proxies::media::Metadata {
-                series_title: x.series_title.clone(),
-                subtitle: x.episode_title.clone(),
-                season: x.season,
-                episode: x.episode,
-                images: x.images.iter().map(|i| i.encode()).collect(),
-                original_air_date: x.original_air_date.clone(),
-                ..proxies::media::Metadata::new(2)
-            },
-            Metadata::MusicTrack(ref x) => proxies::media::Metadata {
-                album_name: x.album_name.clone(),
-                title: x.title.clone(),
-                album_artist: x.album_artist.clone(),
-                artist: x.artist.clone(),
-                composer: x.composer.clone(),
-                track_number: x.track_number,
-                disc_number: x.disc_number,
-                images: x.images.iter().map(|i| i.encode()).collect(),
-                release_date: x.release_date.clone(),
-                ..proxies::media::Metadata::new(3)
-            },
-            Metadata::Photo(ref x) => proxies::media::Metadata {
-                title: x.title.clone(),
-                artist: x.artist.clone(),
-                location: x.location.clone(),
-                latitude: x.latitude_longitude.map(|coord| coord.0),
-                longitude: x.latitude_longitude.map(|coord| coord.1),
-                width: x.dimensions.map(|dims| dims.0),
-                height: x.dimensions.map(|dims| dims.1),
-                creation_date_time: x.creation_date_time.clone(),
-                ..proxies::media::Metadata::new(4)
-            },
-        });
-
         let payload = serde_json::to_string(&proxies::media::MediaRequest {
             request_id,
             session_id: session_id.into().to_string(),
             typ: MESSAGE_TYPE_LOAD.to_string(),
 
-            media: proxies::media::Media {
-                content_id: media.content_id.clone(),
-                stream_type: media.stream_type.to_string(),
-                content_type: media.content_type.clone(),
-                metadata,
-                duration: media.duration,
-            },
+            media: media.encode(),
 
             current_time: 0_f64,
             autoplay: true,
@@ -614,6 +644,93 @@ where
                     };
 
                     if has_media {
+                        return Ok(Some(status));
+                    }
+                }
+                MediaResponse::LoadFailed(error) => {
+                    if error.request_id == request_id {
+                        return Err(Error::Internal("Failed to load media.".to_string()));
+                    }
+                }
+                MediaResponse::LoadCancelled(error) => {
+                    if error.request_id == request_id {
+                        return Err(Error::Internal(
+                            "Load cancelled by another request.".to_string(),
+                        ));
+                    }
+                }
+                MediaResponse::InvalidPlayerState(error) => {
+                    if error.request_id == request_id {
+                        return Err(Error::Internal(
+                            "Load failed because of invalid player state.".to_string(),
+                        ));
+                    }
+                }
+                MediaResponse::InvalidRequest(error) => {
+                    if error.request_id == request_id {
+                        return Err(Error::Internal(format!(
+                            "Load failed because of invalid media request (reason: {}).",
+                            error.reason.unwrap_or_else(|| "UNKNOWN".to_string())
+                        )));
+                    }
+                }
+                _ => {}
+            }
+
+            Ok(None)
+        })
+    }
+
+    pub fn load_queue<S>(
+        &self,
+        destination: S,
+        _session_id: S,
+        queue: &MediaQueue,
+    ) -> Result<Status, Error>
+    where
+        S: Into<Cow<'a, str>>,
+    {
+        let request_id = self.message_manager.generate_request_id();
+
+        let payload = serde_json::to_string(&proxies::media::QueueLoadRequest {
+            typ: MESSAGE_TYPE_QUEUE_LOAD.to_string(),
+            request_id,
+            custom_data: None,
+            items: queue
+                .items
+                .iter()
+                .map(|qi| proxies::media::QueueItem {
+                    active_track_ids: None,
+                    autoplay: true,
+                    custom_data: None,
+                    item_id: None,
+                    media: qi.media.encode(),
+                    playback_duration: None,
+                    preload_time: 20.,
+                    start_time: 0.,
+                })
+                .collect(),
+            repeat_mode: "REPEAT_OFF".to_owned(),
+            start_index: queue.start_index,
+        })?;
+
+        self.message_manager.send(CastMessage {
+            namespace: CHANNEL_NAMESPACE.to_string(),
+            source: self.sender.to_string(),
+            destination: destination.into().to_string(),
+            payload: CastMessagePayload::String(payload),
+        })?;
+
+        // Once media is loaded cast receiver device should emit status update event, or load failed
+        // event if something went wrong.
+        self.message_manager.receive_find_map(|message| {
+            if !self.can_handle(message) {
+                return Ok(None);
+            }
+
+            match self.parse(message)? {
+                MediaResponse::Status(status) => {
+                    if status.request_id == request_id {
                         return Ok(Some(status));
                     }
                 }

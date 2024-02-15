@@ -130,7 +130,7 @@ impl Metadata {
 /// Generic media metadata.
 ///
 /// See also the [`GenericMediaMetadata` Cast reference](https://developers.google.com/cast/docs/reference/messages#GenericMediaMetadata).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct GenericMediaMetadata {
     /// Descriptive title of the content.
     pub title: Option<String>,
@@ -145,7 +145,7 @@ pub struct GenericMediaMetadata {
 /// Movie media metadata.
 ///
 /// See also the [`MovieMediaMetadata` Cast reference](https://developers.google.com/cast/docs/reference/messages#MovieMediaMetadata).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MovieMediaMetadata {
     /// Title of the movie.
     pub title: Option<String>,
@@ -162,7 +162,7 @@ pub struct MovieMediaMetadata {
 /// TV show media metadata.
 ///
 /// See also the [`TvShowMediaMetadata` Cast reference](https://developers.google.com/cast/docs/reference/messages#TvShowMediaMetadata).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TvShowMediaMetadata {
     /// Title of the TV series.
     pub series_title: Option<String>,
@@ -181,7 +181,7 @@ pub struct TvShowMediaMetadata {
 /// Music track media metadata.
 ///
 /// See also the [`MusicTrackMediaMetadata` Cast reference](https://developers.google.com/cast/docs/reference/messages#MusicTrackMediaMetadata).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MusicTrackMediaMetadata {
     /// Album or collection from which the track is taken.
     pub album_name: Option<String>,
@@ -206,7 +206,7 @@ pub struct MusicTrackMediaMetadata {
 /// Photo media metadata.
 ///
 /// See also the [`PhotoMediaMetadata` Cast reference](https://developers.google.com/cast/docs/reference/messages#PhotoMediaMetadata).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PhotoMediaMetadata {
     /// Title of the photograph.
     pub title: Option<String>,

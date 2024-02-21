@@ -28,7 +28,7 @@ const MESSAGE_TYPE_INVALID_PLAYER_STATE: &str = "INVALID_PLAYER_STATE";
 const MESSAGE_TYPE_INVALID_REQUEST: &str = "INVALID_REQUEST";
 
 /// Describes the way cast device should stream content.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum StreamType {
     /// This variant allows cast device to automatically choose whatever way it's most comfortable
     /// with.
@@ -256,7 +256,7 @@ impl Image {
 }
 
 /// Describes possible player states.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PlayerState {
     /// Player has not been loaded yet.
     Idle,
@@ -296,7 +296,7 @@ impl ToString for PlayerState {
 }
 
 /// Describes possible player idle reasons.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IdleReason {
     /// A sender requested to stop playback using the STOP command.
     Cancelled,
@@ -324,7 +324,7 @@ impl FromStr for IdleReason {
 }
 
 /// Describes the operation to perform with playback while seeking.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ResumeState {
     /// Forces media to start.
     PlaybackStart,

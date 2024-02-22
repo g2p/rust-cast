@@ -443,6 +443,21 @@ pub struct QueueItem {
     pub media: Media,
 }
 
+impl QueueItem {
+    fn encode(&self) -> proxies::media::QueueItem {
+        proxies::media::QueueItem {
+            active_track_ids: None,
+            autoplay: true,
+            custom_data: None,
+            item_id: None,
+            media: self.media.encode(),
+            playback_duration: None,
+            preload_time: 20.,
+            start_time: 0.,
+        }
+    }
+}
+
 /// A queue of items to play in sequence
 #[derive(Clone, Debug)]
 pub struct MediaQueue {
@@ -453,6 +468,17 @@ pub struct MediaQueue {
     pub start_index: u16,
     /// What the queue represents
     pub queue_type: QueueType,
+}
+
+impl MediaQueue {
+    fn encode(&self) -> proxies::media::QueueData {
+        proxies::media::QueueData {
+            items: self.items.iter().map(|qi| qi.encode()).collect(),
+            queue_type: Some(self.queue_type.to_string()),
+            repeat_mode: "REPEAT_OFF".to_owned(),
+            start_index: self.start_index,
+        }
+    }
 }
 
 /// Describes the current status of the media artifact with respect to the session.
@@ -647,6 +673,29 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
+        self.load_with_queue(destination, session_id, media, None)
+    }
+
+    /// Loads provided media to the application.
+    ///
+    /// # Arguments
+    /// * `destination` - `protocol` of the application to load media with (e.g. `web-1`);
+    /// * `session_id` - Current session identifier of the player application;
+    /// * `media` - `Media` instance that describes the media we'd like to load.
+    ///
+    /// # Return value
+    ///
+    /// Returned `Result` should consist of either `Status` instance or an `Error`.
+    pub fn load_with_queue<S>(
+        &self,
+        destination: S,
+        session_id: S,
+        media: &Media,
+        queue: Option<&MediaQueue>,
+    ) -> Result<Status, Error>
+    where
+        S: Into<Cow<'a, str>>,
+    {
         let request_id = self.message_manager.generate_request_id().get();
 
         let payload = serde_json::to_string(&proxies::media::MediaRequest {
@@ -659,6 +708,7 @@ where
             current_time: 0_f64,
             autoplay: true,
             custom_data: proxies::media::CustomData::new(),
+            queue_data: queue.map(|qd| qd.encode()),
         })?;
 
         self.message_manager.send(CastMessage {
@@ -741,26 +791,13 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
 
         let payload = serde_json::to_string(&proxies::media::QueueLoadRequest {
             typ: MESSAGE_TYPE_QUEUE_LOAD.to_string(),
             request_id,
             custom_data: None,
-            items: queue
-                .items
-                .iter()
-                .map(|qi| proxies::media::QueueItem {
-                    active_track_ids: None,
-                    autoplay: true,
-                    custom_data: None,
-                    item_id: None,
-                    media: qi.media.encode(),
-                    playback_duration: None,
-                    preload_time: 20.,
-                    start_time: 0.,
-                })
-                .collect(),
+            items: queue.items.iter().map(|qi| qi.encode()).collect(),
             queue_type: Some(queue.queue_type.to_string()),
             repeat_mode: "REPEAT_OFF".to_owned(),
             start_index: queue.start_index,

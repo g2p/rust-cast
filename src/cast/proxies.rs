@@ -60,6 +60,9 @@ pub mod media {
         pub custom_data: CustomData,
 
         pub autoplay: bool,
+
+        #[serde(rename = "queueData", skip_serializing_if = "Option::is_none")]
+        pub queue_data: Option<QueueData>,
     }
 
     /// https://developers.google.com/cast/docs/reference/web_sender/chrome.cast.media.QueueItem
@@ -107,6 +110,22 @@ pub mod media {
         pub items: Vec<QueueItem>,
 
         // This is from https://developers.google.com/cast/docs/reference/web_sender/chrome.cast.media.QueueData
+        #[serde(rename = "queueType")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub queue_type: Option<String>,
+
+        #[serde(rename = "repeatMode")]
+        pub repeat_mode: String,
+
+        #[serde(rename = "startIndex")]
+        pub start_index: u16,
+    }
+
+    /// https://developers.google.com/cast/docs/reference/web_sender/chrome.cast.media.QueueData
+    #[derive(Serialize, Debug)]
+    pub struct QueueData {
+        pub items: Vec<QueueItem>,
+
         #[serde(rename = "queueType")]
         #[serde(skip_serializing_if = "Option::is_none")]
         pub queue_type: Option<String>,

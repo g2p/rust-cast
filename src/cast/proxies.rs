@@ -106,6 +106,11 @@ pub mod media {
 
         pub items: Vec<QueueItem>,
 
+        // This is from https://developers.google.com/cast/docs/reference/web_sender/chrome.cast.media.QueueData
+        #[serde(rename = "queueType")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub queue_type: Option<String>,
+
         #[serde(rename = "repeatMode")]
         pub repeat_mode: String,
 

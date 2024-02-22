@@ -323,6 +323,55 @@ impl FromStr for IdleReason {
     }
 }
 
+/// <https://developers.google.com/cast/docs/reference/web_sender/chrome.cast.media#.QueueType>
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum QueueType {
+    Album,
+    Playlist,
+    Audiobook,
+    RadioStation,
+    PodcastSeries,
+    TvSeries,
+    VideoPlaylist,
+    LiveTv,
+    Movie,
+}
+
+impl FromStr for QueueType {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Error> {
+        match s {
+            "ALBUM" => Ok(Self::Album),
+            "PLAYLIST" => Ok(Self::Playlist),
+            "AUDIOBOOK" => Ok(Self::Audiobook),
+            "RADIO_STATION" => Ok(Self::RadioStation),
+            "PODCAST_SERIES" => Ok(Self::PodcastSeries),
+            "TV_SERIES" => Ok(Self::TvSeries),
+            "VIDEO_PLAYLIST" => Ok(Self::VideoPlaylist),
+            "LIVE_TV" => Ok(Self::LiveTv),
+            "MOVIE" => Ok(Self::Movie),
+            _ => Err(Error::Internal(format!("Unknown queue type {}", s))),
+        }
+    }
+}
+
+impl ToString for QueueType {
+    fn to_string(&self) -> String {
+        match self {
+            QueueType::Album => "ALBUM",
+            QueueType::Playlist => "PLAYLIST",
+            QueueType::Audiobook => "AUDIOBOOK",
+            QueueType::RadioStation => "RADIO_STATION",
+            QueueType::PodcastSeries => "PODCAST_SERIES",
+            QueueType::TvSeries => "TV_SERIES",
+            QueueType::VideoPlaylist => "VIDEO_PLAYLIST",
+            QueueType::LiveTv => "LIVE_TV",
+            QueueType::Movie => "MOVIE",
+        }
+        .to_string()
+    }
+}
+
 /// Describes the operation to perform with playback while seeking.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ResumeState {
@@ -402,6 +451,8 @@ pub struct MediaQueue {
     /// Array index of the first item to be played
     /// Starts at zero.
     pub start_index: u16,
+    /// What the queue represents
+    pub queue_type: QueueType,
 }
 
 /// Describes the current status of the media artifact with respect to the session.
@@ -710,6 +761,7 @@ where
                     start_time: 0.,
                 })
                 .collect(),
+            queue_type: Some(queue.queue_type.to_string()),
             repeat_mode: "REPEAT_OFF".to_owned(),
             start_index: queue.start_index,
         })?;

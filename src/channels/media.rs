@@ -295,6 +295,38 @@ impl ToString for PlayerState {
     }
 }
 
+/// Describes possible player states.
+/// Can appear when the base state is PlayerState::Idle
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ExtendedPlayerState {
+    /// Player is loading the next media
+    Loading,
+}
+
+impl FromStr for ExtendedPlayerState {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Error> {
+        match s {
+            "LOADING" => Ok(Self::Loading),
+            _ => Err(Error::Internal(format!(
+                "Unknown extended player state {}",
+                s
+            ))),
+        }
+    }
+}
+
+impl ToString for ExtendedPlayerState {
+    fn to_string(&self) -> String {
+        let player_state = match *self {
+            Self::Loading => "LOADING",
+        };
+
+        player_state.to_string()
+    }
+}
+
 /// Describes possible player idle reasons.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IdleReason {
@@ -436,6 +468,18 @@ impl Media {
     }
 }
 
+impl From<&proxies::media::Media> for Media {
+    fn from(m: &proxies::media::Media) -> Self {
+        Self {
+            content_id: m.content_id.to_string(),
+            stream_type: StreamType::from_str(m.stream_type.as_ref()).unwrap(),
+            content_type: m.content_type.to_string(),
+            metadata: None, // TODO
+            duration: m.duration,
+        }
+    }
+}
+
 /// One item in a queue
 #[derive(Clone, Debug)]
 pub struct QueueItem {
@@ -490,6 +534,20 @@ pub struct Status {
     pub entries: Vec<StatusEntry>,
 }
 
+/// Status of loading the next media
+#[derive(Clone, Debug)]
+pub struct ExtendedStatus {
+    /// Describes the state of the player.
+    pub player_state: ExtendedPlayerState,
+    /// Unique ID for the playback of this specific session. This ID is set by the receiver at LOAD
+    /// and can be used to identify a specific instance of a playback. For example, two playbacks of
+    /// "Wish you were here" within the same session would each have a unique mediaSessionId.
+    pub media_session_id: Option<i32>,
+    /// Full description of the content that is being played back. Only be returned in a status
+    /// messages if the Media has changed.
+    pub media: Option<Media>,
+}
+
 /// Detailed status of the media artifact with respect to the session.
 #[derive(Clone, Debug)]
 pub struct StatusEntry {
@@ -510,6 +568,9 @@ pub struct StatusEntry {
     /// provided. If the player is IDLE because it just started, this property will not be provided.
     /// If the player is in any other state this property should not be provided.
     pub idle_reason: Option<IdleReason>,
+    /// An extended status can be used when the player is idle (no playback) but also loading
+    /// another media.
+    pub extended_status: Option<ExtendedStatus>,
     /// The current position of the media player since the beginning of the content, in seconds.
     /// If this a live stream content, then this field represents the time in seconds from the
     /// beginning of the event that should be known to the player.
@@ -1032,27 +1093,22 @@ where
             MESSAGE_TYPE_MEDIA_STATUS => {
                 let reply: proxies::media::StatusReply = serde_json::value::from_value(reply)?;
 
-                let statuses_entries = reply.status.iter().map(|x| {
-                    StatusEntry {
-                        media_session_id: x.media_session_id,
-                        media: x.media.as_ref().map(|m| {
-                            Media {
-                                content_id: m.content_id.to_string(),
-                                stream_type: StreamType::from_str(m.stream_type.as_ref()).unwrap(),
-                                content_type: m.content_type.to_string(),
-                                metadata: None, // TODO
-                                duration: m.duration,
-                            }
-                        }),
-                        playback_rate: x.playback_rate,
-                        player_state: PlayerState::from_str(x.player_state.as_ref()).unwrap(),
-                        idle_reason: x
-                            .idle_reason
-                            .as_ref()
-                            .map(|reason| IdleReason::from_str(reason).unwrap()),
-                        current_time: x.current_time,
-                        supported_media_commands: x.supported_media_commands,
-                    }
+                let statuses_entries = reply.status.iter().map(|x| StatusEntry {
+                    media_session_id: x.media_session_id,
+                    media: x.media.as_ref().map(|m| m.into()),
+                    playback_rate: x.playback_rate,
+                    player_state: PlayerState::from_str(x.player_state.as_ref()).unwrap(),
+                    idle_reason: x
+                        .idle_reason
+                        .as_ref()
+                        .map(|reason| IdleReason::from_str(reason).unwrap()),
+                    extended_status: x.extended_status.as_ref().map(|es| ExtendedStatus {
+                        player_state: ExtendedPlayerState::from_str(&es.player_state).unwrap(),
+                        media_session_id: es.media_session_id,
+                        media: es.media.as_ref().map(|m| m.into()),
+                    }),
+                    current_time: x.current_time,
+                    supported_media_commands: x.supported_media_commands,
                 });
 
                 MediaResponse::Status(Status {

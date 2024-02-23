@@ -303,6 +303,15 @@ pub mod media {
     }
 
     #[derive(Deserialize, Debug)]
+    pub struct ExtendedStatus {
+        #[serde(rename = "playerState")]
+        pub player_state: String,
+        #[serde(rename = "mediaSessionId")]
+        pub media_session_id: Option<i32>,
+        pub media: Option<Media>,
+    }
+
+    #[derive(Deserialize, Debug)]
     pub struct Status {
         #[serde(rename = "mediaSessionId")]
         pub media_session_id: i32,
@@ -314,6 +323,8 @@ pub mod media {
         pub player_state: String,
         #[serde(rename = "idleReason")]
         pub idle_reason: Option<String>,
+        #[serde(rename = "extendedStatus")]
+        pub extended_status: Option<ExtendedStatus>,
         #[serde(rename = "currentTime")]
         pub current_time: Option<f32>,
         #[serde(rename = "supportedMediaCommands")]

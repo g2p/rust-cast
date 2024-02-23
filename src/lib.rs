@@ -110,9 +110,10 @@ impl<'a> CastDevice<'a> {
             log::debug!("Successfully parsed {valid} root certificates.");
         }
 
-        let config = ClientConfig::builder()
+        let mut config = ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
+        config.key_log = Arc::new(rustls::KeyLogFile::new());
 
         let conn = ClientConnection::new(
             config.into(),
@@ -158,10 +159,11 @@ impl<'a> CastDevice<'a> {
 
         log::debug!("Establishing non-verified connection with cast device at {host}:{port}…");
 
-        let config = ClientConfig::builder()
+        let mut config = ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(NoCertificateVerification {}))
             .with_no_client_auth();
+        config.key_log = Arc::new(rustls::KeyLogFile::new());
         let stream = StreamOwned::new(
             ClientConnection::new(
                 Arc::new(config),

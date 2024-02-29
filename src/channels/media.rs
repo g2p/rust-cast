@@ -127,6 +127,75 @@ impl Metadata {
     }
 }
 
+impl TryFrom<&proxies::media::Metadata> for Metadata {
+    type Error = Error;
+
+    fn try_from(m: &proxies::media::Metadata) -> Result<Self, Error> {
+        Ok(match m.metadata_type {
+            0 => Self::Generic(GenericMediaMetadata {
+                title: m.title.clone(),
+                subtitle: m.subtitle.clone(),
+                images: m.images.iter().map(Image::from).collect(),
+                release_date: m.release_date.clone(),
+            }),
+            1 => Self::Movie(MovieMediaMetadata {
+                title: m.title.clone(),
+                subtitle: m.subtitle.clone(),
+                studio: m.studio.clone(),
+                images: m.images.iter().map(Image::from).collect(),
+                release_date: m.release_date.clone(),
+            }),
+            2 => Self::TvShow(TvShowMediaMetadata {
+                series_title: m.series_title.clone(),
+                episode_title: m.subtitle.clone(),
+                season: m.season,
+                episode: m.episode,
+                images: m.images.iter().map(Image::from).collect(),
+                original_air_date: m.original_air_date.clone(),
+            }),
+            3 => Self::MusicTrack(MusicTrackMediaMetadata {
+                album_name: m.album_name.clone(),
+                title: m.title.clone(),
+                album_artist: m.album_artist.clone(),
+                artist: m.artist.clone(),
+                composer: m.composer.clone(),
+                track_number: m.track_number,
+                disc_number: m.disc_number,
+                images: m.images.iter().map(Image::from).collect(),
+                release_date: m.release_date.clone(),
+            }),
+            4 => {
+                let mut dimensions = None;
+                let mut latitude_longitude = None;
+                if let Some(width) = m.width {
+                    if let Some(height) = m.height {
+                        dimensions = Some((width, height))
+                    }
+                }
+                if let Some(lat) = m.latitude {
+                    if let Some(long) = m.longitude {
+                        latitude_longitude = Some((lat, long))
+                    }
+                }
+                Self::Photo(PhotoMediaMetadata {
+                    title: m.title.clone(),
+                    artist: m.artist.clone(),
+                    location: m.location.clone(),
+                    latitude_longitude,
+                    dimensions,
+                    creation_date_time: m.creation_date_time.clone(),
+                })
+            }
+            _ => {
+                return Err(Error::Parsing(format!(
+                    "Bad metadataType {}",
+                    m.metadata_type
+                )))
+            }
+        })
+    }
+}
+
 /// Generic media metadata.
 ///
 /// See also the [`GenericMediaMetadata` Cast reference](https://developers.google.com/cast/docs/reference/messages#GenericMediaMetadata).
@@ -251,6 +320,21 @@ impl Image {
             url: self.url.clone(),
             width: self.dimensions.map(|d| d.0),
             height: self.dimensions.map(|d| d.1),
+        }
+    }
+}
+
+impl From<&proxies::media::Image> for Image {
+    fn from(i: &proxies::media::Image) -> Self {
+        let mut dimensions = None;
+        if let Some(width) = i.width {
+            if let Some(height) = i.height {
+                dimensions = Some((width, height));
+            }
+        };
+        Self {
+            url: i.url.clone(),
+            dimensions,
         }
     }
 }
@@ -468,15 +552,17 @@ impl Media {
     }
 }
 
-impl From<&proxies::media::Media> for Media {
-    fn from(m: &proxies::media::Media) -> Self {
-        Self {
+impl TryFrom<&proxies::media::Media> for Media {
+    type Error = Error;
+
+    fn try_from(m: &proxies::media::Media) -> Result<Self, Error> {
+        Ok(Self {
             content_id: m.content_id.to_string(),
-            stream_type: StreamType::from_str(m.stream_type.as_ref()).unwrap(),
+            stream_type: StreamType::from_str(m.stream_type.as_ref())?,
             content_type: m.content_type.to_string(),
-            metadata: None, // TODO
+            metadata: m.metadata.as_ref().map(TryInto::try_into).transpose()?,
             duration: m.duration,
-        }
+        })
     }
 }
 
@@ -548,6 +634,18 @@ pub struct ExtendedStatus {
     pub media: Option<Media>,
 }
 
+impl TryFrom<&proxies::media::ExtendedStatus> for ExtendedStatus {
+    type Error = Error;
+
+    fn try_from(es: &proxies::media::ExtendedStatus) -> Result<Self, Error> {
+        Ok(Self {
+            player_state: ExtendedPlayerState::from_str(&es.player_state)?,
+            media_session_id: es.media_session_id,
+            media: es.media.as_ref().map(Media::try_from).transpose()?,
+        })
+    }
+}
+
 /// Detailed status of the media artifact with respect to the session.
 #[derive(Clone, Debug)]
 pub struct StatusEntry {
@@ -587,6 +685,31 @@ pub struct StatusEntry {
     /// * `1 << 18` `Unknown`.
     /// Combinations are described as summations; for example, Pause+Seek+StreamVolume+Mute == 15.
     pub supported_media_commands: u32,
+}
+
+impl TryFrom<&proxies::media::Status> for StatusEntry {
+    type Error = Error;
+
+    fn try_from(x: &proxies::media::Status) -> Result<Self, Error> {
+        Ok(Self {
+            media_session_id: x.media_session_id,
+            media: x.media.as_ref().map(TryInto::try_into).transpose()?,
+            playback_rate: x.playback_rate,
+            player_state: PlayerState::from_str(x.player_state.as_ref())?,
+            idle_reason: x
+                .idle_reason
+                .as_ref()
+                .map(|reason| IdleReason::from_str(reason))
+                .transpose()?,
+            extended_status: x
+                .extended_status
+                .as_ref()
+                .map(ExtendedStatus::try_from)
+                .transpose()?,
+            current_time: x.current_time,
+            supported_media_commands: x.supported_media_commands,
+        })
+    }
 }
 
 /// Describes the load cancelled error.
@@ -1093,27 +1216,15 @@ where
             MESSAGE_TYPE_MEDIA_STATUS => {
                 let reply: proxies::media::StatusReply = serde_json::value::from_value(reply)?;
 
-                let statuses_entries = reply.status.iter().map(|x| StatusEntry {
-                    media_session_id: x.media_session_id,
-                    media: x.media.as_ref().map(|m| m.into()),
-                    playback_rate: x.playback_rate,
-                    player_state: PlayerState::from_str(x.player_state.as_ref()).unwrap(),
-                    idle_reason: x
-                        .idle_reason
-                        .as_ref()
-                        .map(|reason| IdleReason::from_str(reason).unwrap()),
-                    extended_status: x.extended_status.as_ref().map(|es| ExtendedStatus {
-                        player_state: ExtendedPlayerState::from_str(&es.player_state).unwrap(),
-                        media_session_id: es.media_session_id,
-                        media: es.media.as_ref().map(|m| m.into()),
-                    }),
-                    current_time: x.current_time,
-                    supported_media_commands: x.supported_media_commands,
-                });
+                let entries = reply
+                    .status
+                    .iter()
+                    .map(StatusEntry::try_from)
+                    .collect::<Result<_, _>>()?;
 
                 MediaResponse::Status(Status {
                     request_id: reply.request_id,
-                    entries: statuses_entries.collect::<Vec<StatusEntry>>(),
+                    entries,
                 })
             }
             MESSAGE_TYPE_LOAD_CANCELLED => {

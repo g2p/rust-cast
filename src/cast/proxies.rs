@@ -321,6 +321,12 @@ pub mod media {
         pub playback_rate: f32,
         #[serde(rename = "playerState")]
         pub player_state: String,
+        #[serde(rename = "currentItemId")]
+        pub current_item_id: Option<u16>,
+        #[serde(rename = "loadingItemId")]
+        pub loading_item_id: Option<u16>,
+        #[serde(rename = "preloadedItemId")]
+        pub preloaded_item_id: Option<u16>,
         #[serde(rename = "idleReason")]
         pub idle_reason: Option<String>,
         #[serde(rename = "extendedStatus")]

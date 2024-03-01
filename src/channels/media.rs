@@ -662,6 +662,12 @@ pub struct StatusEntry {
     pub playback_rate: f32,
     /// Describes the state of the player.
     pub player_state: PlayerState,
+    /// Id of the current queue item
+    pub current_item_id: Option<u16>,
+    /// Id of the item currently loading
+    pub loading_item_id: Option<u16>,
+    /// Id of the item currently preloaded
+    pub preloaded_item_id: Option<u16>,
     /// If the player_state is IDLE and the reason it became IDLE is known, this property is
     /// provided. If the player is IDLE because it just started, this property will not be provided.
     /// If the player is in any other state this property should not be provided.
@@ -696,6 +702,9 @@ impl TryFrom<&proxies::media::Status> for StatusEntry {
             media: x.media.as_ref().map(TryInto::try_into).transpose()?,
             playback_rate: x.playback_rate,
             player_state: PlayerState::from_str(x.player_state.as_ref())?,
+            current_item_id: x.current_item_id,
+            loading_item_id: x.loading_item_id,
+            preloaded_item_id: x.preloaded_item_id,
             idle_reason: x
                 .idle_reason
                 .as_ref()

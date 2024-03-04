@@ -322,7 +322,7 @@ pub struct Media {
 #[derive(Clone, Debug)]
 pub struct Status {
     /// Unique id of the request that requested the status.
-    pub request_id: i32,
+    pub request_id: u32,
     /// Detailed status of every media status entry.
     pub entries: Vec<StatusEntry>,
 }
@@ -369,28 +369,28 @@ pub struct StatusEntry {
 #[derive(Copy, Clone, Debug)]
 pub struct LoadCancelled {
     /// Unique id of the request that caused this error.
-    pub request_id: i32,
+    pub request_id: u32,
 }
 
 /// Describes the load failed error.
 #[derive(Copy, Clone, Debug)]
 pub struct LoadFailed {
     /// Unique id of the request that caused this error.
-    pub request_id: i32,
+    pub request_id: u32,
 }
 
 /// Describes the invalid player state error.
 #[derive(Copy, Clone, Debug)]
 pub struct InvalidPlayerState {
     /// Unique id of the request that caused this error.
-    pub request_id: i32,
+    pub request_id: u32,
 }
 
 /// Describes the invalid request error.
 #[derive(Clone, Debug)]
 pub struct InvalidRequest {
     /// Unique id of the invalid request.
-    pub request_id: i32,
+    pub request_id: u32,
     /// Description of the invalid request reason if available.
     pub reason: Option<String>,
 }
@@ -455,7 +455,7 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
 
         let payload = serde_json::to_string(&proxies::media::GetStatusRequest {
             typ: MESSAGE_TYPE_GET_STATUS.to_string(),
@@ -510,7 +510,7 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
 
         let metadata = media.metadata.as_ref().map(|m| match *m {
             Metadata::Generic(ref x) => proxies::media::Metadata {
@@ -666,7 +666,7 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
 
         let payload = serde_json::to_string(&proxies::media::PlaybackGenericRequest {
             request_id,
@@ -700,7 +700,7 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
 
         let payload = serde_json::to_string(&proxies::media::PlaybackGenericRequest {
             request_id,
@@ -735,7 +735,7 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
 
         let payload = serde_json::to_string(&proxies::media::PlaybackGenericRequest {
             request_id,
@@ -778,7 +778,7 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
 
         let payload = serde_json::to_string(&proxies::media::PlaybackSeekRequest {
             request_id,
@@ -905,7 +905,7 @@ where
     /// Returned `Result` should consist of either `Status` instance or an `Error`.
     fn receive_status_entry(
         &self,
-        request_id: i32,
+        request_id: u32,
         media_session_id: i32,
     ) -> Result<StatusEntry, Error> {
         self.message_manager.receive_find_map(|message| {

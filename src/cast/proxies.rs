@@ -29,7 +29,7 @@ pub mod media {
     #[derive(Serialize, Debug)]
     pub struct GetStatusRequest {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "type")]
         pub typ: String,
@@ -41,7 +41,7 @@ pub mod media {
     #[derive(Serialize, Debug)]
     pub struct MediaRequest {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "sessionId")]
         pub session_id: String,
@@ -63,7 +63,7 @@ pub mod media {
     #[derive(Serialize, Debug)]
     pub struct PlaybackGenericRequest {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "mediaSessionId")]
         pub media_session_id: i32,
@@ -78,7 +78,7 @@ pub mod media {
     #[derive(Serialize, Debug)]
     pub struct PlaybackSeekRequest {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "mediaSessionId")]
         pub media_session_id: i32,
@@ -246,7 +246,7 @@ pub mod media {
     #[derive(Deserialize, Debug)]
     pub struct StatusReply {
         #[serde(rename = "requestId", default)]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "type")]
         pub typ: String,
@@ -257,25 +257,25 @@ pub mod media {
     #[derive(Deserialize, Debug)]
     pub struct LoadCancelledReply {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
     }
 
     #[derive(Deserialize, Debug)]
     pub struct LoadFailedReply {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
     }
 
     #[derive(Deserialize, Debug)]
     pub struct InvalidPlayerStateReply {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
     }
 
     #[derive(Deserialize, Debug)]
     pub struct InvalidRequestReply {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "type")]
         pub typ: String,
@@ -293,7 +293,7 @@ pub mod receiver {
     #[derive(Serialize, Debug)]
     pub struct AppLaunchRequest {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "type")]
         pub typ: String,
@@ -305,7 +305,7 @@ pub mod receiver {
     #[derive(Serialize, Debug)]
     pub struct AppStopRequest<'a> {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "type")]
         pub typ: String,
@@ -317,7 +317,7 @@ pub mod receiver {
     #[derive(Serialize, Debug)]
     pub struct GetStatusRequest {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "type")]
         pub typ: String,
@@ -326,7 +326,7 @@ pub mod receiver {
     #[derive(Serialize, Debug)]
     pub struct SetVolumeRequest {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "type")]
         pub typ: String,
@@ -337,7 +337,7 @@ pub mod receiver {
     #[derive(Deserialize, Debug)]
     pub struct StatusReply {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "type")]
         pub typ: String,
@@ -398,7 +398,7 @@ pub mod receiver {
     #[derive(Deserialize, Debug)]
     pub struct LaunchErrorReply {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "type")]
         pub typ: String,
@@ -409,7 +409,7 @@ pub mod receiver {
     #[derive(Deserialize, Debug)]
     pub struct InvalidRequestReply {
         #[serde(rename = "requestId")]
-        pub request_id: i32,
+        pub request_id: u32,
 
         #[serde(rename = "type")]
         pub typ: String,

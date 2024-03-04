@@ -1,5 +1,6 @@
 use std::{
     io::{Read, Write},
+    num::NonZeroU32,
     ops::{Deref, DerefMut},
 };
 
@@ -102,7 +103,7 @@ where
 {
     message_buffer: Lock<Vec<CastMessage>>,
     stream: Lock<S>,
-    request_counter: Lock<i32>,
+    request_counter: Lock<NonZeroU32>,
 }
 
 impl<S> MessageManager<S>
@@ -113,7 +114,7 @@ where
         MessageManager {
             stream: Lock::new(stream),
             message_buffer: Lock::new(vec![]),
-            request_counter: Lock::new(1),
+            request_counter: Lock::new(NonZeroU32::MIN),
         }
     }
 
@@ -238,10 +239,10 @@ where
     /// # Return value
     ///
     /// Unique (in the scope of this particular `MessageManager` instance) integer number.
-    pub fn generate_request_id(&self) -> i32 {
+    pub fn generate_request_id(&self) -> NonZeroU32 {
         let mut counter = self.request_counter.borrow_mut();
         let request_id = *counter;
-        *counter += 1;
+        *counter = counter.checked_add(1).unwrap();
         request_id
     }
 

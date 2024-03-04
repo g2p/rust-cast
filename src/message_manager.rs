@@ -60,16 +60,6 @@ impl<T> Lock<T> {
         })
     }
 
-    fn borrow(&self) -> LockGuard<'_, T> {
-        LockGuard({
-            #[cfg(feature = "thread_safe")]
-            let guard = self.0.lock().unwrap();
-            #[cfg(not(feature = "thread_safe"))]
-            let guard = self.0.borrow();
-            guard
-        })
-    }
-
     fn borrow_mut(&self) -> LockGuardMut<'_, T> {
         LockGuardMut({
             #[cfg(feature = "thread_safe")]
@@ -249,10 +239,9 @@ where
     ///
     /// Unique (in the scope of this particular `MessageManager` instance) integer number.
     pub fn generate_request_id(&self) -> i32 {
-        let request_id = *self.request_counter.borrow() + 1;
-
-        *self.request_counter.borrow_mut() = request_id;
-
+        let mut counter = self.request_counter.borrow_mut();
+        let request_id = *counter;
+        *counter += 1;
         request_id
     }
 

@@ -14,6 +14,8 @@ const CHANNEL_NAMESPACE: &str = "urn:x-cast:com.google.cast.media";
 const MESSAGE_TYPE_GET_STATUS: &str = "GET_STATUS";
 const MESSAGE_TYPE_LOAD: &str = "LOAD";
 const MESSAGE_TYPE_QUEUE_LOAD: &str = "QUEUE_LOAD";
+const MESSAGE_TYPE_QUEUE_PREV: &str = "QUEUE_PREV";
+const MESSAGE_TYPE_QUEUE_NEXT: &str = "QUEUE_NEXT";
 const MESSAGE_TYPE_PLAY: &str = "PLAY";
 const MESSAGE_TYPE_PAUSE: &str = "PAUSE";
 const MESSAGE_TYPE_STOP: &str = "STOP";
@@ -1127,6 +1129,78 @@ where
             request_id,
             media_session_id,
             typ: MESSAGE_TYPE_PLAY.to_string(),
+            custom_data: proxies::media::CustomData::new(),
+        })?;
+
+        self.message_manager
+            .send(CastMessage {
+                namespace: CHANNEL_NAMESPACE.to_string(),
+                source: self.sender.to_string(),
+                destination: destination.into().to_string(),
+                payload: CastMessagePayload::String(payload),
+            })
+            .await?;
+
+        self.receive_status_entry(request_id, media_session_id)
+            .await
+    }
+
+    /// Go to next item in queue
+    ///
+    /// # Arguments
+    ///
+    /// * `destination` - `protocol` of the media application (e.g. `web-1`);
+    /// * `media_session_id` - ID of the media session to be played.
+    ///
+    /// # Return value
+    ///
+    /// Returned `Result` should consist of either `Status` instance or an `Error`.
+    pub async fn next<S>(&self, destination: S, media_session_id: i32) -> Result<StatusEntry, Error>
+    where
+        S: Into<Cow<'a, str>>,
+    {
+        let request_id = self.message_manager.generate_request_id().get();
+
+        let payload = serde_json::to_string(&proxies::media::PlaybackGenericRequest {
+            request_id,
+            media_session_id,
+            typ: MESSAGE_TYPE_QUEUE_NEXT.to_string(),
+            custom_data: proxies::media::CustomData::new(),
+        })?;
+
+        self.message_manager
+            .send(CastMessage {
+                namespace: CHANNEL_NAMESPACE.to_string(),
+                source: self.sender.to_string(),
+                destination: destination.into().to_string(),
+                payload: CastMessagePayload::String(payload),
+            })
+            .await?;
+
+        self.receive_status_entry(request_id, media_session_id)
+            .await
+    }
+
+    /// Go to previous item in queue
+    ///
+    /// # Arguments
+    ///
+    /// * `destination` - `protocol` of the media application (e.g. `web-1`);
+    /// * `media_session_id` - ID of the media session to be played.
+    ///
+    /// # Return value
+    ///
+    /// Returned `Result` should consist of either `Status` instance or an `Error`.
+    pub async fn prev<S>(&self, destination: S, media_session_id: i32) -> Result<StatusEntry, Error>
+    where
+        S: Into<Cow<'a, str>>,
+    {
+        let request_id = self.message_manager.generate_request_id().get();
+
+        let payload = serde_json::to_string(&proxies::media::PlaybackGenericRequest {
+            request_id,
+            media_session_id,
+            typ: MESSAGE_TYPE_QUEUE_PREV.to_string(),
             custom_data: proxies::media::CustomData::new(),
         })?;
 

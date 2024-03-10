@@ -137,6 +137,31 @@ pub mod media {
         pub start_index: u16,
     }
 
+    /// https://developers.google.com/cast/docs/reference/web_receiver/cast.framework.messages.QueueUpdateRequestData
+    #[derive(Serialize, Debug)]
+    pub struct QueueUpdateRequest {
+        #[serde(rename = "requestId")]
+        pub request_id: u32,
+
+        /// https://developers.google.com/cast/docs/reference/web_receiver/cast.framework.messages.RequestData
+        #[serde(rename = "sequenceNumber")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub sequence_number: Option<u32>,
+
+        #[serde(rename = "mediaSessionId")]
+        pub media_session_id: i32,
+
+        #[serde(rename = "type")]
+        pub typ: String,
+
+        #[serde(rename = "customData")]
+        pub custom_data: CustomData,
+
+        #[serde(rename = "repeatMode")]
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub repeat_mode: String,
+    }
+
     #[derive(Serialize, Debug)]
     pub struct PlaybackGenericRequest {
         #[serde(rename = "requestId")]
@@ -335,6 +360,8 @@ pub mod media {
         pub current_time: Option<f32>,
         #[serde(rename = "supportedMediaCommands")]
         pub supported_media_commands: u32,
+        #[serde(rename = "repeatMode")]
+        pub repeat_mode: Option<String>,
     }
 
     #[derive(Deserialize, Debug)]

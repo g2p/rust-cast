@@ -16,6 +16,7 @@ const MESSAGE_TYPE_LOAD: &str = "LOAD";
 const MESSAGE_TYPE_QUEUE_LOAD: &str = "QUEUE_LOAD";
 const MESSAGE_TYPE_QUEUE_PREV: &str = "QUEUE_PREV";
 const MESSAGE_TYPE_QUEUE_NEXT: &str = "QUEUE_NEXT";
+const MESSAGE_TYPE_QUEUE_UPDATE: &str = "QUEUE_UPDATE";
 const MESSAGE_TYPE_PLAY: &str = "PLAY";
 const MESSAGE_TYPE_PAUSE: &str = "PAUSE";
 const MESSAGE_TYPE_STOP: &str = "STOP";
@@ -338,6 +339,51 @@ impl From<&proxies::media::Image> for Image {
     }
 }
 
+/// Queue repeat modes
+/// https://developers.google.com/cast/docs/reference/web_sender/chrome.cast.media#.RepeatMode
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RepeatMode {
+    /// Items are played in order, and when the queue is completed (the last
+    /// item has ended) the media session is terminated.
+    Off,
+    /// The items in the queue will be played indefinitely. When the last item
+    /// has ended, the first item will be played again.
+    All,
+    ///The current item will be repeated indefinitely.
+    Single,
+    /// The items in the queue will be played indefinitely. When the last item
+    /// has ended, the list of items will be randomly shuffled by the receiver,
+    /// and the queue will continue to play starting from the first item of the
+    /// shuffled items.
+    AllAndShuffle,
+}
+
+impl FromStr for RepeatMode {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Error> {
+        match s {
+            "REPEAT_OFF" => Ok(Self::Off),
+            "REPEAT_ALL" => Ok(Self::All),
+            "REPEAT_SINGLE" => Ok(Self::Single),
+            "REPEAT_ALL_AND_SHUFFLE" => Ok(Self::AllAndShuffle),
+            _ => Err(Error::Internal(format!("Unknown queue repeat mode {s}"))),
+        }
+    }
+}
+
+impl ToString for RepeatMode {
+    fn to_string(&self) -> String {
+        match *self {
+            Self::Off => "REPEAT_OFF",
+            Self::All => "REPEAT_ALL",
+            Self::Single => "REPEAT_SINGLE",
+            Self::AllAndShuffle => "REPEAT_ALL_AND_SHUFFLE",
+        }
+        .to_string()
+    }
+}
+
 /// Describes possible player states.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PlayerState {
@@ -597,6 +643,8 @@ pub struct MediaQueue {
     pub start_index: u16,
     /// What the queue represents
     pub queue_type: QueueType,
+    /// Will the queue or a track be repeated in a loop
+    pub repeat_mode: RepeatMode,
 }
 
 impl MediaQueue {
@@ -604,7 +652,7 @@ impl MediaQueue {
         proxies::media::QueueData {
             items: self.items.iter().map(|qi| qi.encode()).collect(),
             queue_type: Some(self.queue_type.to_string()),
-            repeat_mode: "REPEAT_OFF".to_owned(),
+            repeat_mode: self.repeat_mode.to_string(),
             start_index: self.start_index,
         }
     }
@@ -690,6 +738,8 @@ pub struct StatusEntry {
     /// * `1 << 18` `Unknown`.
     /// Combinations are described as summations; for example, Pause+Seek+StreamVolume+Mute == 15.
     pub supported_media_commands: u32,
+    /// Will the queue or a track be repeated in a loop
+    pub repeat_mode: Option<RepeatMode>,
 }
 
 impl TryFrom<&proxies::media::Status> for StatusEntry {
@@ -716,6 +766,11 @@ impl TryFrom<&proxies::media::Status> for StatusEntry {
                 .transpose()?,
             current_time: x.current_time,
             supported_media_commands: x.supported_media_commands,
+            repeat_mode: x
+                .repeat_mode
+                .as_deref()
+                .map(RepeatMode::from_str)
+                .transpose()?,
         })
     }
 }
@@ -1005,7 +1060,7 @@ where
             custom_data: None,
             items: queue.items.iter().map(|qi| qi.encode()).collect(),
             queue_type: Some(queue.queue_type.to_string()),
-            repeat_mode: "REPEAT_OFF".to_owned(),
+            repeat_mode: queue.repeat_mode.to_string(),
             start_index: queue.start_index,
         })?;
 
@@ -1202,6 +1257,49 @@ where
             media_session_id,
             typ: MESSAGE_TYPE_QUEUE_PREV.to_string(),
             custom_data: proxies::media::CustomData::new(),
+        })?;
+
+        self.message_manager
+            .send(CastMessage {
+                namespace: CHANNEL_NAMESPACE.to_string(),
+                source: self.sender.to_string(),
+                destination: destination.into().to_string(),
+                payload: CastMessagePayload::String(payload),
+            })
+            .await?;
+
+        self.receive_status_entry(request_id, media_session_id)
+            .await
+    }
+
+    /// Update queue parameters (repeat, shuffle…)
+    ///
+    /// # Arguments
+    ///
+    /// * `destination` - `protocol` of the media application (e.g. `web-1`);
+    /// * `media_session_id` - ID of the media session to be played.
+    ///
+    /// # Return value
+    ///
+    /// Returned `Result` should consist of either `Status` instance or an `Error`.
+    pub async fn update_queue<S>(
+        &self,
+        destination: S,
+        media_session_id: i32,
+        repeat_mode: Option<RepeatMode>,
+    ) -> Result<StatusEntry, Error>
+    where
+        S: Into<Cow<'a, str>>,
+    {
+        let request_id = self.message_manager.generate_request_id().get();
+
+        let payload = serde_json::to_string(&proxies::media::QueueUpdateRequest {
+            request_id,
+            media_session_id,
+            typ: MESSAGE_TYPE_QUEUE_UPDATE.to_string(),
+            custom_data: proxies::media::CustomData::new(),
+            sequence_number: None,
+            repeat_mode: repeat_mode.map(|e| e.to_string()).unwrap_or_default(),
         })?;
 
         self.message_manager

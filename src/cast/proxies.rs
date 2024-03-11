@@ -66,7 +66,7 @@ pub mod media {
     }
 
     /// https://developers.google.com/cast/docs/reference/web_sender/chrome.cast.media.QueueItem
-    #[derive(Serialize, Debug)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub struct QueueItem {
         #[serde(rename = "activeTrackIds")]
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -318,7 +318,7 @@ pub mod media {
         pub height: Option<u32>,
     }
 
-    #[derive(Serialize, Debug)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub struct CustomData {}
 
     impl CustomData {
@@ -362,6 +362,8 @@ pub mod media {
         pub supported_media_commands: u32,
         #[serde(rename = "repeatMode")]
         pub repeat_mode: Option<String>,
+        #[serde(default)]
+        pub items: Option<Vec<QueueItem>>,
     }
 
     #[derive(Deserialize, Debug)]

@@ -616,6 +616,8 @@ impl TryFrom<&proxies::media::Media> for Media {
 pub struct QueueItem {
     /// The item as media
     pub media: Media,
+    /// Receciver-assigned identifier
+    pub item_id: Option<u16>,
 }
 
 impl QueueItem {
@@ -624,12 +626,23 @@ impl QueueItem {
             active_track_ids: None,
             autoplay: true,
             custom_data: None,
-            item_id: None,
+            item_id: None, // Mustn't be set by the sender
             media: self.media.encode(),
             playback_duration: None,
             preload_time: 20.,
             start_time: 0.,
         }
+    }
+}
+
+impl TryFrom<&proxies::media::QueueItem> for QueueItem {
+    type Error = Error;
+
+    fn try_from(value: &proxies::media::QueueItem) -> Result<Self, Error> {
+        Ok(Self {
+            media: Media::try_from(&value.media)?,
+            item_id: value.item_id,
+        })
     }
 }
 
@@ -740,6 +753,8 @@ pub struct StatusEntry {
     pub supported_media_commands: u32,
     /// Will the queue or a track be repeated in a loop
     pub repeat_mode: Option<RepeatMode>,
+    /// List of media queue items
+    pub items: Option<Vec<QueueItem>>,
 }
 
 impl TryFrom<&proxies::media::Status> for StatusEntry {
@@ -770,6 +785,11 @@ impl TryFrom<&proxies::media::Status> for StatusEntry {
                 .repeat_mode
                 .as_deref()
                 .map(RepeatMode::from_str)
+                .transpose()?,
+            items: x
+                .items
+                .as_ref()
+                .map(|items| items.iter().map(|it| QueueItem::try_from(it)).collect())
                 .transpose()?,
         })
     }

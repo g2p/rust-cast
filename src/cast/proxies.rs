@@ -194,6 +194,9 @@ pub mod media {
         #[serde(rename = "currentTime")]
         pub current_time: Option<f32>,
 
+        #[serde(rename = "relativeTime")]
+        pub relative_time: Option<f32>,
+
         #[serde(rename = "customData")]
         pub custom_data: CustomData,
     }

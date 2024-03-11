@@ -1392,6 +1392,7 @@ where
         destination: S,
         media_session_id: i32,
         current_time: Option<f32>,
+        relative_time: Option<f32>,
         resume_state: Option<ResumeState>,
     ) -> Result<StatusEntry, Error>
     where
@@ -1404,6 +1405,7 @@ where
             media_session_id,
             typ: MESSAGE_TYPE_SEEK.to_string(),
             current_time,
+            relative_time,
             resume_state: resume_state.map(|s| s.to_string()),
             custom_data: proxies::media::CustomData::new(),
         })?;

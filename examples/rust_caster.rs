@@ -449,6 +449,7 @@ async fn main() {
                                 status.media_session_id,
                                 Some(args.flag_media_seek.unwrap()),
                                 None,
+                                None,
                             )
                             .await
                             .unwrap(),

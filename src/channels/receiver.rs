@@ -91,7 +91,7 @@ pub struct Application {
 #[derive(Clone, Debug)]
 pub struct Status {
     /// Unique id of the request that requested the status.
-    pub request_id: i32,
+    pub request_id: u32,
     /// Contains the list of applications that are currently run.
     pub applications: Vec<Application>,
     /// Determines whether the Cast device is the active input or not.
@@ -106,7 +106,7 @@ pub struct Status {
 #[derive(Clone, Debug)]
 pub struct LaunchError {
     /// Unique id of the request that tried to launch application.
-    pub request_id: i32,
+    pub request_id: u32,
     /// Description of the launch error reason if available.
     pub reason: Option<String>,
 }
@@ -115,7 +115,7 @@ pub struct LaunchError {
 #[derive(Clone, Debug)]
 pub struct InvalidRequest {
     /// Unique id of the invalid request.
-    pub request_id: i32,
+    pub request_id: u32,
     /// Description of the invalid request reason if available.
     pub reason: Option<String>,
 }
@@ -212,7 +212,7 @@ where
     ///
     /// * `app` - `CastDeviceApp` instance reference to run.
     pub fn launch_app(&self, app: &CastDeviceApp) -> Result<Application, Error> {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
 
         let payload = serde_json::to_string(&proxies::receiver::AppLaunchRequest {
             typ: MESSAGE_TYPE_LAUNCH.to_string(),
@@ -301,7 +301,7 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
 
         let payload = serde_json::to_string(&proxies::receiver::AppStopRequest {
             typ: MESSAGE_TYPE_STOP.to_string(),
@@ -350,7 +350,7 @@ where
     ///
     /// Returned `Result` should consist of either `Status` instance or an `Error`.
     pub fn get_status(&self) -> Result<Status, Error> {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
 
         let payload = serde_json::to_string(&proxies::receiver::GetStatusRequest {
             typ: MESSAGE_TYPE_GET_STATUS.to_string(),
@@ -398,7 +398,7 @@ where
     where
         T: Into<Volume>,
     {
-        let request_id = self.message_manager.generate_request_id();
+        let request_id = self.message_manager.generate_request_id().get();
         let volume = volume.into();
 
         let payload = serde_json::to_string(&proxies::receiver::SetVolumeRequest {

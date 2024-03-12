@@ -5,7 +5,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::{
     cast::proxies,
     errors::Error,
-    message_manager::{CastMessage, CastMessagePayload, MessageManager},
+    message_manager::{CastMessage, CastMessagePayload, JsonMessage, MessageManager},
     Lrc,
 };
 
@@ -50,31 +50,27 @@ where
     }
 
     pub async fn ping(&self) -> Result<(), Error> {
-        let payload = serde_json::to_string(&proxies::heartbeat::HeartBeatRequest {
-            typ: MESSAGE_TYPE_PING.to_string(),
-        })?;
-
         self.message_manager
-            .send(CastMessage {
-                namespace: CHANNEL_NAMESPACE.to_string(),
-                source: self.sender.to_string(),
-                destination: self.receiver.to_string(),
-                payload: CastMessagePayload::String(payload),
+            .send(JsonMessage {
+                namespace: CHANNEL_NAMESPACE,
+                source: &self.sender,
+                destination: &self.receiver,
+                payload: proxies::heartbeat::HeartBeatRequest {
+                    typ: MESSAGE_TYPE_PING.to_string(),
+                },
             })
             .await
     }
 
     pub async fn pong(&self) -> Result<(), Error> {
-        let payload = serde_json::to_string(&proxies::heartbeat::HeartBeatRequest {
-            typ: MESSAGE_TYPE_PONG.to_string(),
-        })?;
-
         self.message_manager
-            .send(CastMessage {
-                namespace: CHANNEL_NAMESPACE.to_string(),
-                source: self.sender.to_string(),
-                destination: self.receiver.to_string(),
-                payload: CastMessagePayload::String(payload),
+            .send(JsonMessage {
+                namespace: CHANNEL_NAMESPACE,
+                source: &self.sender,
+                destination: &self.receiver,
+                payload: proxies::heartbeat::HeartBeatRequest {
+                    typ: MESSAGE_TYPE_PONG.to_string(),
+                },
             })
             .await
     }

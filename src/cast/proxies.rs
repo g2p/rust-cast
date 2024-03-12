@@ -28,9 +28,6 @@ pub mod media {
 
     #[derive(Serialize, Debug)]
     pub struct GetStatusRequest {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
         #[serde(rename = "type")]
         pub typ: String,
 
@@ -42,9 +39,6 @@ pub mod media {
     /// https://developers.google.com/cast/docs/reference/web_sender/chrome.cast.media.LoadRequest
     #[derive(Serialize, Debug)]
     pub struct MediaRequest {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
         #[serde(rename = "sessionId")]
         pub session_id: String,
 
@@ -100,9 +94,6 @@ pub mod media {
         #[serde(rename = "type")]
         pub typ: String,
 
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
         #[serde(rename = "customData")]
         #[serde(skip_serializing_if = "Option::is_none")]
         pub custom_data: Option<CustomData>,
@@ -140,9 +131,6 @@ pub mod media {
     /// https://developers.google.com/cast/docs/reference/web_receiver/cast.framework.messages.QueueUpdateRequestData
     #[derive(Serialize, Debug)]
     pub struct QueueUpdateRequest {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
         /// https://developers.google.com/cast/docs/reference/web_receiver/cast.framework.messages.RequestData
         #[serde(rename = "sequenceNumber")]
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -164,9 +152,6 @@ pub mod media {
 
     #[derive(Serialize, Debug)]
     pub struct PlaybackGenericRequest {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
         #[serde(rename = "mediaSessionId")]
         pub media_session_id: i32,
 
@@ -179,9 +164,6 @@ pub mod media {
 
     #[derive(Serialize, Debug)]
     pub struct PlaybackSeekRequest {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
         #[serde(rename = "mediaSessionId")]
         pub media_session_id: i32,
 
@@ -321,7 +303,7 @@ pub mod media {
         pub height: Option<u32>,
     }
 
-    #[derive(Serialize, Deserialize, Debug)]
+    #[derive(Serialize, Deserialize, Debug, Default)]
     pub struct CustomData {}
 
     impl CustomData {
@@ -370,42 +352,36 @@ pub mod media {
     }
 
     #[derive(Deserialize, Debug)]
+    #[serde(tag = "type")]
+    pub enum MediaReply {
+        #[serde(rename = "MEDIA_STATUS")]
+        Status(StatusReply),
+        #[serde(rename = "LOAD_CANCELLED")]
+        LoadCancelled(LoadCancelledReply),
+        #[serde(rename = "LOAD_FAILED")]
+        LoadFailed(LoadFailedReply),
+        #[serde(rename = "INVALID_PLAYER_STATE")]
+        InvalidPlayerState(InvalidPlayerStateReply),
+        #[serde(rename = "INVALID_REQUEST")]
+        InvalidRequest(InvalidRequestReply),
+    }
+
+    #[derive(Deserialize, Debug)]
     pub struct StatusReply {
-        #[serde(rename = "requestId", default)]
-        pub request_id: u32,
-
-        #[serde(rename = "type")]
-        pub typ: String,
-
         pub status: Vec<Status>,
     }
 
     #[derive(Deserialize, Debug)]
-    pub struct LoadCancelledReply {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-    }
+    pub struct LoadCancelledReply;
 
     #[derive(Deserialize, Debug)]
-    pub struct LoadFailedReply {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-    }
+    pub struct LoadFailedReply;
 
     #[derive(Deserialize, Debug)]
-    pub struct InvalidPlayerStateReply {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-    }
+    pub struct InvalidPlayerStateReply;
 
     #[derive(Deserialize, Debug)]
     pub struct InvalidRequestReply {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
-        #[serde(rename = "type")]
-        pub typ: String,
-
         pub reason: Option<String>,
     }
 }
@@ -418,9 +394,6 @@ pub mod receiver {
 
     #[derive(Serialize, Debug)]
     pub struct AppLaunchRequest {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
         #[serde(rename = "type")]
         pub typ: String,
 
@@ -430,9 +403,6 @@ pub mod receiver {
 
     #[derive(Serialize, Debug)]
     pub struct AppStopRequest<'a> {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
         #[serde(rename = "type")]
         pub typ: String,
 
@@ -442,18 +412,12 @@ pub mod receiver {
 
     #[derive(Serialize, Debug)]
     pub struct GetStatusRequest {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
         #[serde(rename = "type")]
         pub typ: String,
     }
 
     #[derive(Serialize, Debug)]
     pub struct SetVolumeRequest {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
         #[serde(rename = "type")]
         pub typ: String,
 
@@ -461,13 +425,18 @@ pub mod receiver {
     }
 
     #[derive(Deserialize, Debug)]
+    #[serde(tag = "type")]
+    pub enum ReceiverReply {
+        #[serde(rename = "RECEIVER_STATUS")]
+        Status(StatusReply),
+        #[serde(rename = "LAUNCH_ERROR")]
+        LaunchError(LaunchErrorReply),
+        #[serde(rename = "INVALID_REQUEST")]
+        InvalidRequest(InvalidRequestReply),
+    }
+
+    #[derive(Deserialize, Debug)]
     pub struct StatusReply {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
-        #[serde(rename = "type")]
-        pub typ: String,
-
         pub status: Status,
     }
 
@@ -523,23 +492,11 @@ pub mod receiver {
 
     #[derive(Deserialize, Debug)]
     pub struct LaunchErrorReply {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
-        #[serde(rename = "type")]
-        pub typ: String,
-
         pub reason: Option<String>,
     }
 
     #[derive(Deserialize, Debug)]
     pub struct InvalidRequestReply {
-        #[serde(rename = "requestId")]
-        pub request_id: u32,
-
-        #[serde(rename = "type")]
-        pub typ: String,
-
         pub reason: Option<String>,
     }
 }

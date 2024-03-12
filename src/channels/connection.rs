@@ -5,7 +5,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::{
     cast::proxies,
     errors::Error,
-    message_manager::{CastMessage, CastMessagePayload, MessageManager},
+    message_manager::{CastMessage, CastMessagePayload, JsonMessage, MessageManager},
     Lrc,
 };
 
@@ -48,17 +48,15 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
-        let payload = serde_json::to_string(&proxies::connection::ConnectionRequest {
-            typ: MESSAGE_TYPE_CONNECT.to_string(),
-            user_agent: CHANNEL_USER_AGENT.to_string(),
-        })?;
-
         self.message_manager
-            .send(CastMessage {
-                namespace: CHANNEL_NAMESPACE.to_string(),
-                source: self.sender.to_string(),
-                destination: destination.into().to_string(),
-                payload: CastMessagePayload::String(payload),
+            .send(JsonMessage {
+                namespace: CHANNEL_NAMESPACE,
+                source: &self.sender,
+                destination: &destination.into(),
+                payload: proxies::connection::ConnectionRequest {
+                    typ: MESSAGE_TYPE_CONNECT.to_string(),
+                    user_agent: CHANNEL_USER_AGENT.to_string(),
+                },
             })
             .await
     }
@@ -67,17 +65,15 @@ where
     where
         S: Into<Cow<'a, str>>,
     {
-        let payload = serde_json::to_string(&proxies::connection::ConnectionRequest {
-            typ: MESSAGE_TYPE_CLOSE.to_string(),
-            user_agent: CHANNEL_USER_AGENT.to_string(),
-        })?;
-
         self.message_manager
-            .send(CastMessage {
-                namespace: CHANNEL_NAMESPACE.to_string(),
-                source: self.sender.to_string(),
-                destination: destination.into().to_string(),
-                payload: CastMessagePayload::String(payload),
+            .send(JsonMessage {
+                namespace: CHANNEL_NAMESPACE,
+                source: &self.sender,
+                destination: &destination.into(),
+                payload: proxies::connection::ConnectionRequest {
+                    typ: MESSAGE_TYPE_CLOSE.to_string(),
+                    user_agent: CHANNEL_USER_AGENT.to_string(),
+                },
             })
             .await
     }

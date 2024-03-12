@@ -6,6 +6,7 @@ use std::{
 use bytes::{Buf as _, BufMut as _, BytesMut};
 use futures_util::{SinkExt as _, StreamExt as _};
 use protobuf::Message as _;
+use serde_derive::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
 use tokio_util::codec;
 
@@ -16,6 +17,14 @@ use crate::{
     },
     errors::Error,
 };
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Request<T> {
+    #[serde(rename = "requestId")]
+    request_id: u32,
+    #[serde(flatten)]
+    inner: T,
+}
 
 struct Lock<T>(
     #[cfg(feature = "thread_safe")] std::sync::Mutex<T>,
@@ -74,6 +83,20 @@ impl<T> Lock<T> {
             guard
         })
     }
+}
+
+/// A message that will be serialized as JSON
+#[derive(Debug, Clone)]
+pub struct JsonMessage<'a, T> {
+    /// A namespace is a labeled protocol. That is, messages that are exchanged throughout the
+    /// Cast ecosystem utilize namespaces to identify the protocol of the message being sent.
+    pub namespace: &'a str,
+    /// Unique identifier of the `sender` application.
+    pub source: &'a str,
+    /// Unique identifier of the `receiver` application.
+    pub destination: &'a str,
+    /// Payload data attached to the message (either string or binary).
+    pub payload: T,
 }
 
 /// Type of the payload that `CastMessage` can have.
@@ -135,7 +158,7 @@ impl codec::Decoder for MessageCodec {
         src.advance(4);
         let frame = src.split_to(length);
         // parse_from_tokio_bytes could save a few allocs,
-        // if combined with cogen changes: https://lib.rs/crates/protobuf
+        // if combined with codegen changes: https://lib.rs/crates/protobuf
         //let raw_message = cast_channel::CastMessage::parse_from_tokio_bytes(frame)?;
         let raw_message = cast_channel::CastMessage::parse_from_bytes(&frame)?;
         log::debug!("Message received: {:?}", raw_message);
@@ -227,10 +250,55 @@ where
     ///
     /// # Arguments
     ///
-    /// * `message` - `CastMessage` instance to be sent to the Cast Device.
-    pub async fn send(&self, message: CastMessage) -> Result<(), Error> {
+    /// * `message` - `JsonMessage` instance to be sent to the Cast Device.
+    pub async fn send<T: serde::Serialize>(
+        &self,
+        message: JsonMessage<'_, T>,
+    ) -> Result<(), Error> {
+        let message = CastMessage {
+            namespace: message.namespace.to_owned(),
+            source: message.source.to_owned(),
+            destination: message.destination.to_owned(),
+            payload: CastMessagePayload::String(serde_json::to_string(&message.payload)?),
+        };
         self.sender.lock().await.send(message).await?;
         Ok(())
+    }
+
+    pub async fn send_get_reply<T: serde::Serialize, U: serde::de::DeserializeOwned>(
+        &self,
+        message: JsonMessage<'_, T>,
+    ) -> Result<U, Error> {
+        let request_id = self.generate_request_id().get();
+        let cast_message = CastMessage {
+            namespace: message.namespace.to_owned(),
+            source: message.source.to_owned(),
+            destination: message.destination.to_owned(),
+            payload: CastMessagePayload::String(serde_json::to_string(&Request {
+                request_id,
+                inner: message.payload,
+            })?),
+        };
+        self.sender.lock().await.send(cast_message).await?;
+        self.receive_find_map(|resp| {
+            if resp.namespace != message.namespace {
+                return Ok(None);
+            }
+            let CastMessagePayload::String(ref payload) = resp.payload else {
+                return Err(Error::Internal(
+                    "Binary payload is not supported!".to_string(),
+                ));
+            };
+            // Deserialize first with IgnoredAny to be able to skip
+            // things that aren't in the expected reply format
+            let resp: Request<serde::de::IgnoredAny> = serde_json::from_str(payload)?;
+            if resp.request_id != request_id {
+                return Ok(None);
+            }
+            let resp: Request<U> = serde_json::from_str(payload)?;
+            Ok(Some(resp.inner))
+        })
+        .await
     }
 
     /// Waits for the next `CastMessage` available. Can also return existing message from the

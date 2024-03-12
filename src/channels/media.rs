@@ -860,6 +860,14 @@ pub struct InvalidRequest {
     pub reason: Option<String>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct NotImplemented {
+    #[serde(rename = "type")]
+    pub typ: String,
+    #[serde(flatten)]
+    pub data: serde_json::Value,
+}
+
 /// Represents all currently supported incoming messages that media channel can handle.
 #[derive(Clone, Debug)]
 pub enum MediaResponse {
@@ -876,7 +884,7 @@ pub enum MediaResponse {
     InvalidRequest(InvalidRequest),
     /// Used every time when channel can't parse the message. Associated data contains `type` string
     /// field and raw JSON data returned from cast device.
-    NotImplemented(String, serde_json::Value),
+    NotImplemented(NotImplemented),
 }
 
 impl TryFrom<proxies::MediaReply> for MediaResponse {
@@ -1314,7 +1322,11 @@ where
             ));
         };
 
-        let repl: proxies::MediaReply = serde_json::from_str(payload)?;
+        let Ok(repl) = serde_json::from_str::<proxies::MediaReply>(payload) else {
+            return Ok(MediaResponse::NotImplemented(serde_json::from_str(
+                payload,
+            )?));
+        };
 
         repl.try_into()
     }

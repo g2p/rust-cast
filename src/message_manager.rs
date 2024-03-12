@@ -6,7 +6,7 @@ use std::{
 use bytes::{Buf as _, BufMut as _, BytesMut};
 use futures_util::{SinkExt as _, StreamExt as _};
 use protobuf::Message as _;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
 use tokio_util::codec;
 

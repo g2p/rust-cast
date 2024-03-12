@@ -807,7 +807,6 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "serde",
- "serde_derive",
  "serde_json",
  "tokio",
  "tokio-rustls",

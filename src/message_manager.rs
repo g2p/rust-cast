@@ -289,7 +289,7 @@ where
     message_buffer: Lock<VecDeque<Result<CastMessage, Error>>>,
     // Using async mutexes to prevent interleaving; we keep
     // the guard across await points until a frame is entirely handled
-    sender: Lock<codec::FramedWrite<WriteHalf<S>, MessageCodec>>,
+    sender: tokio::sync::Mutex<codec::FramedWrite<WriteHalf<S>, MessageCodec>>,
     // This is an independent mutex so reads and writes can be interleaved
     receiver: Lock<codec::FramedRead<ReadHalf<S>, MessageCodec>>,
     request_counter: Lock<NonZeroU32>,
@@ -307,7 +307,7 @@ where
         // if poll_lock takes mut self.
         let (read, write) = tokio::io::split(stream);
         let receiver = Lock::new(codec::FramedRead::new(read, MessageCodec));
-        let sender = Lock::new(codec::FramedWrite::new(write, MessageCodec));
+        let sender = tokio::sync::Mutex::new(codec::FramedWrite::new(write, MessageCodec));
         MessageManager {
             sender,
             receiver,
@@ -332,7 +332,7 @@ where
             destination: message.destination.to_owned(),
             payload: CastMessagePayload::String(serde_json::to_string(&message.payload)?),
         };
-        self.sender.borrow_mut().send(message).await?;
+        self.sender.lock().await.send(message).await?;
         Ok(())
     }
 
@@ -353,17 +353,13 @@ where
         self.pending_requests
             .borrow_mut()
             .register(message.namespace.to_owned(), request_id);
-        self.sender.borrow_mut().send(cast_message).await?;
+        self.sender.lock().await.send(cast_message).await?;
         let payload = poll_fn(|cx| self.poll_reply(cx, request_id)).await.unwrap();
         let resp: Request<U> = serde_json::from_str(&payload)?;
         Ok(resp.inner)
     }
 
-    fn poll_reply(
-        &self,
-        context: &mut Context<'_>,
-        request_id: NonZeroU32,
-    ) -> Poll<Option<String>> {
+    fn poll_reply(&self, cx: &mut Context<'_>, request_id: NonZeroU32) -> Poll<Option<String>> {
         let mut pending_requests = self.pending_requests.borrow_mut();
         let Some(state) = pending_requests.by_request_id.get_mut(&request_id) else {
             log::error!("poll_reply unexpected request_id {request_id}");
@@ -373,12 +369,11 @@ where
         match state.payload {
             Poll::Pending => {
                 if let Some(ref mut waker) = state.waker {
-                    waker.clone_from(context.waker())
+                    waker.clone_from(cx.waker())
                 } else {
-                    state.waker = Some(context.waker().clone())
+                    state.waker = Some(cx.waker().clone())
                 }
-                while let Some(msgres) = ready!(self.receiver.borrow_mut().poll_next_unpin(context))
-                {
+                while let Some(msgres) = ready!(self.receiver.borrow_mut().poll_next_unpin(cx)) {
                     if let Some(msgres) = msgres
                         .and_then(|msg| pending_requests.handle_read(msg))
                         .transpose()

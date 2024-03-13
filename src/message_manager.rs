@@ -1,7 +1,8 @@
-use std::{
-    num::NonZeroU32,
-    ops::{Deref, DerefMut},
-};
+use std::collections::BTreeMap;
+use std::future::poll_fn;
+use std::num::NonZeroU32;
+use std::ops::{Deref, DerefMut};
+use std::task::{Context, Poll, Waker};
 
 use bytes::{Buf as _, BufMut as _, BytesMut};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -211,6 +212,40 @@ impl codec::Encoder<CastMessage> for MessageCodec {
     }
 }
 
+#[derive(Debug)]
+struct ResponseState {
+    waker: Option<Waker>,
+    payload: Poll<Option<String>>,
+}
+
+impl Default for ResponseState {
+    fn default() -> Self {
+        Self {
+            waker: None,
+            payload: Poll::Pending,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct PendingRequests {
+    /// How many requests are pending in a namespace
+    by_namespace: BTreeMap<String, usize>,
+    /// Request id to request state
+    by_request_id: BTreeMap<NonZeroU32, ResponseState>,
+}
+
+impl PendingRequests {
+    fn register(&mut self, namespace: String, request_id: NonZeroU32) {
+        let by_ns = self.by_namespace.entry(namespace).or_default();
+        *by_ns = by_ns.checked_add(1).unwrap();
+        assert!(self
+            .by_request_id
+            .insert(request_id, ResponseState::default())
+            .is_none());
+    }
+}
+
 /// Static structure that is responsible for (de)serializing and sending/receiving Cast protocol
 /// messages.
 pub struct MessageManager<S>
@@ -224,6 +259,8 @@ where
     // This is an independent mutex so reads and writes can be interleaved
     receiver: tokio::sync::Mutex<codec::FramedRead<ReadHalf<S>, MessageCodec>>,
     request_counter: Lock<NonZeroU32>,
+    // From namespace to request_id to response state
+    pending_requests: Lock<PendingRequests>,
 }
 
 impl<S> MessageManager<S>
@@ -243,6 +280,7 @@ where
             receiver,
             message_buffer: Lock::new(vec![]),
             request_counter: Lock::new(NonZeroU32::MIN),
+            pending_requests: Lock::new(PendingRequests::default()),
         }
     }
 
@@ -269,36 +307,46 @@ where
         &self,
         message: JsonMessage<'_, T>,
     ) -> Result<U, Error> {
-        let request_id = self.generate_request_id().get();
+        let request_id = self.generate_request_id();
         let cast_message = CastMessage {
             namespace: message.namespace.to_owned(),
             source: message.source.to_owned(),
             destination: message.destination.to_owned(),
             payload: CastMessagePayload::String(serde_json::to_string(&Request {
-                request_id,
+                request_id: request_id.get(),
                 inner: message.payload,
             })?),
         };
+        self.pending_requests
+            .borrow_mut()
+            .register(message.namespace.to_owned(), request_id);
         self.sender.lock().await.send(cast_message).await?;
-        self.receive_find_map(|resp| {
-            if resp.namespace != message.namespace {
-                return Ok(None);
+        let payload = poll_fn(|cx| self.poll_reply(cx, request_id)).await.unwrap();
+        let resp: Request<U> = serde_json::from_str(&payload)?;
+        Ok(resp.inner)
+    }
+
+    fn poll_reply(
+        &self,
+        context: &mut Context<'_>,
+        request_id: NonZeroU32,
+    ) -> Poll<Option<String>> {
+        let mut pending_requests = self.pending_requests.borrow_mut();
+        let Some(state) = pending_requests.by_request_id.get_mut(&request_id) else {
+            return Poll::Ready(None);
+        };
+        match state.payload {
+            Poll::Pending => {
+                if let Some(ref mut waker) = state.waker {
+                    waker.clone_from(context.waker())
+                } else {
+                    state.waker = Some(context.waker().clone())
+                }
+                Poll::Pending
             }
-            let CastMessagePayload::String(ref payload) = resp.payload else {
-                return Err(Error::Internal(
-                    "Binary payload is not supported!".to_string(),
-                ));
-            };
-            // Deserialize first with IgnoredAny to be able to skip
-            // things that aren't in the expected reply format
-            let resp: Request<serde::de::IgnoredAny> = serde_json::from_str(payload)?;
-            if resp.request_id != request_id {
-                return Ok(None);
-            }
-            let resp: Request<U> = serde_json::from_str(payload)?;
-            Ok(Some(resp.inner))
-        })
-        .await
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Ready(ref mut opt) => Poll::Ready(opt.take()),
+        }
     }
 
     /// Waits for the next `CastMessage` available. Can also return existing message from the
@@ -399,13 +447,36 @@ where
     ///
     /// `Result` containing parsed `CastMessage` or `Error`.
     async fn read(&self) -> Result<CastMessage, Error> {
-        let Some(maybe_msg) = self.receiver.lock().await.next().await else {
-            // Stream has ended cleanly; Ok(None) would be better
-            // but requires updating users
-            return Err(Error::Io(std::io::Error::from(
-                std::io::ErrorKind::UnexpectedEof,
-            )));
-        };
-        maybe_msg
+        while let Some(maybe_msg) = self.receiver.lock().await.next().await {
+            let mut msg = maybe_msg?;
+            let mut pending_requests = self.pending_requests.borrow_mut();
+            if pending_requests
+                .by_namespace
+                .get(&msg.namespace)
+                .cloned()
+                .unwrap_or_default()
+                > 0
+            {
+                if let CastMessagePayload::String(payload) = msg.payload {
+                    let resp: Request<serde::de::IgnoredAny> = serde_json::from_str(&payload)?;
+                    if let Some(request_id) = NonZeroU32::new(resp.request_id) {
+                        if let Some(pending) = pending_requests.by_request_id.get_mut(&request_id) {
+                            pending.payload = Poll::Ready(Some(payload));
+                            if let Some(ref waker) = pending.waker {
+                                waker.wake_by_ref();
+                            }
+                            continue;
+                        }
+                    }
+                    msg.payload = CastMessagePayload::String(payload);
+                }
+            }
+            return Ok(msg);
+        }
+        // Stream has ended cleanly; Ok(None) would be better
+        // but requires updating callers
+        Err(Error::Io(std::io::Error::from(
+            std::io::ErrorKind::UnexpectedEof,
+        )))
     }
 }

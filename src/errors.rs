@@ -27,6 +27,8 @@ pub enum Error {
     Tls(rustls::Error),
     /// Problems with given namespace
     Namespace(String),
+    /// Attempt to read from closed/disconnected stream
+    Disconnected,
 }
 
 impl Display for Error {
@@ -40,6 +42,7 @@ impl Display for Error {
             Error::Tls(ref err) => Display::fmt(&err, f),
             Error::Dns(ref err) => Display::fmt(&err, f),
             Error::Namespace(ref err) => Display::fmt(&err, f),
+            Error::Disconnected => f.write_str("Disconnected"),
         }
     }
 }
@@ -55,6 +58,7 @@ impl StdError for Error {
             Error::Internal(_) => None,
             Error::Parsing(_) => None,
             Error::Namespace(_) => None,
+            Error::Disconnected => None,
         }
     }
 }

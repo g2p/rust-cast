@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::future::poll_fn;
 use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
-use std::task::{Context, Poll, Waker};
+use std::task::{ready, Context, Poll, Waker};
 
 use bytes::{Buf as _, BufMut as _, BytesMut};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -244,6 +244,40 @@ impl PendingRequests {
             .insert(request_id, ResponseState::default())
             .is_none());
     }
+
+    fn handle_read(&mut self, mut msg: CastMessage) -> Result<Option<CastMessage>, Error> {
+        let Some(by_ns) = self.by_namespace.get_mut(&msg.namespace) else {
+            return Ok(Some(msg));
+        };
+        if *by_ns == 0 {
+            return Ok(Some(msg));
+        }
+        if let CastMessagePayload::String(payload) = msg.payload {
+            let resp: Request<serde::de::IgnoredAny> = serde_json::from_str(&payload)?;
+            if let Some(request_id) = NonZeroU32::new(resp.request_id) {
+                if let Some(pending) = self.by_request_id.get_mut(&request_id) {
+                    log::debug!("handle_read saving reply payload");
+                    pending.payload = Poll::Ready(Some(payload));
+                    if let Some(ref waker) = pending.waker {
+                        waker.wake_by_ref();
+                    }
+                    *by_ns -= 1;
+                    return Ok(None);
+                }
+            }
+            msg.payload = CastMessagePayload::String(payload);
+        }
+        Ok(Some(msg))
+    }
+}
+
+enum Read {
+    /// We read a reply, passed it into pending_requests
+    Reply,
+    /// A message that's not a reply
+    NonReply(CastMessage),
+    /// Stream has ended cleanly
+    EndOfStream,
 }
 
 /// Static structure that is responsible for (de)serializing and sending/receiving Cast protocol
@@ -252,14 +286,13 @@ pub struct MessageManager<S>
 where
     S: AsyncWrite + AsyncRead,
 {
-    message_buffer: Lock<Vec<CastMessage>>,
+    message_buffer: Lock<VecDeque<Result<CastMessage, Error>>>,
     // Using async mutexes to prevent interleaving; we keep
     // the guard across await points until a frame is entirely handled
-    sender: tokio::sync::Mutex<codec::FramedWrite<WriteHalf<S>, MessageCodec>>,
+    sender: Lock<codec::FramedWrite<WriteHalf<S>, MessageCodec>>,
     // This is an independent mutex so reads and writes can be interleaved
-    receiver: tokio::sync::Mutex<codec::FramedRead<ReadHalf<S>, MessageCodec>>,
+    receiver: Lock<codec::FramedRead<ReadHalf<S>, MessageCodec>>,
     request_counter: Lock<NonZeroU32>,
-    // From namespace to request_id to response state
     pending_requests: Lock<PendingRequests>,
 }
 
@@ -273,12 +306,12 @@ where
         // was left unmerged.  Also, it may not be as useful
         // if poll_lock takes mut self.
         let (read, write) = tokio::io::split(stream);
-        let receiver = codec::FramedRead::new(read, MessageCodec).into();
-        let sender = codec::FramedWrite::new(write, MessageCodec).into();
+        let receiver = Lock::new(codec::FramedRead::new(read, MessageCodec));
+        let sender = Lock::new(codec::FramedWrite::new(write, MessageCodec));
         MessageManager {
             sender,
             receiver,
-            message_buffer: Lock::new(vec![]),
+            message_buffer: Lock::new(VecDeque::new()),
             request_counter: Lock::new(NonZeroU32::MIN),
             pending_requests: Lock::new(PendingRequests::default()),
         }
@@ -299,7 +332,7 @@ where
             destination: message.destination.to_owned(),
             payload: CastMessagePayload::String(serde_json::to_string(&message.payload)?),
         };
-        self.sender.lock().await.send(message).await?;
+        self.sender.borrow_mut().send(message).await?;
         Ok(())
     }
 
@@ -320,7 +353,7 @@ where
         self.pending_requests
             .borrow_mut()
             .register(message.namespace.to_owned(), request_id);
-        self.sender.lock().await.send(cast_message).await?;
+        self.sender.borrow_mut().send(cast_message).await?;
         let payload = poll_fn(|cx| self.poll_reply(cx, request_id)).await.unwrap();
         let resp: Request<U> = serde_json::from_str(&payload)?;
         Ok(resp.inner)
@@ -333,14 +366,27 @@ where
     ) -> Poll<Option<String>> {
         let mut pending_requests = self.pending_requests.borrow_mut();
         let Some(state) = pending_requests.by_request_id.get_mut(&request_id) else {
+            log::error!("poll_reply unexpected request_id {request_id}");
             return Poll::Ready(None);
         };
+        log::debug!("poll_reply {request_id} {state:?}");
         match state.payload {
             Poll::Pending => {
                 if let Some(ref mut waker) = state.waker {
                     waker.clone_from(context.waker())
                 } else {
                     state.waker = Some(context.waker().clone())
+                }
+                while let Some(msgres) = ready!(self.receiver.borrow_mut().poll_next_unpin(context))
+                {
+                    if let Some(msgres) = msgres
+                        .and_then(|msg| pending_requests.handle_read(msg))
+                        .transpose()
+                    {
+                        self.message_buffer.borrow_mut().push_back(msgres);
+                    } else {
+                        break;
+                    }
                 }
                 Poll::Pending
             }
@@ -349,82 +395,22 @@ where
         }
     }
 
-    /// Waits for the next `CastMessage` available. Can also return existing message from the
-    /// internal message buffer containing messages that have been received previously, but haven't
-    /// been consumed for some reason (e.g. during `receive_find_map` call).
+    /// Waits for the next `CastMessage` available.
     ///
     /// # Return value
     ///
     /// `Result` containing parsed `CastMessage` or `Error`.
     pub async fn receive(&self) -> Result<CastMessage, Error> {
-        let mut message_buffer = self.message_buffer.borrow_mut();
-
-        // If we have messages in the buffer, let's return them from it.
-        if message_buffer.is_empty() {
-            self.read().await
-        } else {
-            Ok(message_buffer.remove(0))
-        }
-    }
-
-    /// Waits for the next `CastMessage` for which `f` returns valid mapped value. Messages in which
-    /// `f` is not interested are placed into internal message buffer and can be later retrieved
-    /// with `receive`. This method always reads from the stream.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use std::sync::Arc;
-    /// # use tokio::net::TcpStream;
-    /// # use rust_cast::message_manager::{CastMessage, MessageManager};
-    /// # use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
-    /// # use rustls::pki_types::ServerName;
-    /// # use tokio_rustls::TlsConnector;
-    /// # let config = ClientConfig::builder()
-    /// #   .with_root_certificates(RootCertStore::empty())
-    /// #   .with_no_client_auth();
-    /// # tokio_test::block_on(async {
-    /// # let server_name = ServerName::try_from("0")?.to_owned();
-    /// # let connor = TlsConnector::from(Arc::new(config));
-    /// # let tcp_stream = TcpStream::connect(("0", 8009)).await?;
-    /// # let tls_stream = connor.connect(server_name, tcp_stream).await?;
-    /// # let message_manager = MessageManager::new(tls_stream);
-    /// # fn can_handle(message: &CastMessage) -> bool { unimplemented!() }
-    /// # fn parse(message: &CastMessage) { unimplemented!() }
-    /// message_manager.receive_find_map(|message| {
-    ///   if !can_handle(message) {
-    ///     return Ok(None);
-    ///   }
-    ///
-    ///   parse(message);
-    ///
-    ///   Ok(Some(()))
-    /// }).await?;
-    /// # Ok::<(), rust_cast::errors::Error>(())
-    /// # });
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `f` - Function that analyzes and maps `CastMessage` to any other type. If message doesn't
-    /// look like something `f` is looking for, then `Ok(None)` should be returned so that message
-    /// is not lost and placed into internal message buffer for later retrieval.
-    ///
-    /// # Return value
-    ///
-    /// `Result` containing parsed `CastMessage` or `Error`.
-    pub async fn receive_find_map<F, B>(&self, f: F) -> Result<B, Error>
-    where
-        F: Fn(&CastMessage) -> Result<Option<B>, Error>,
-    {
         loop {
-            let message = self.read().await?;
-
-            // If message is found, just return mapped result, otherwise keep unprocessed message
-            // in the buffer, it can be later retrieved with `receive`.
-            match f(&message)? {
-                Some(r) => return Ok(r),
-                None => self.message_buffer.borrow_mut().push(message),
+            if let Some(msgres) = self.message_buffer.borrow_mut().pop_front() {
+                return msgres;
+            }
+            match self.read().await? {
+                Read::Reply => (),
+                Read::NonReply(message) => return Ok(message),
+                Read::EndOfStream => {
+                    return Err(Error::Disconnected);
+                }
             }
         }
     }
@@ -434,49 +420,33 @@ where
     /// # Return value
     ///
     /// Unique (in the scope of this particular `MessageManager` instance) integer number.
-    pub fn generate_request_id(&self) -> NonZeroU32 {
+    fn generate_request_id(&self) -> NonZeroU32 {
         let mut counter = self.request_counter.borrow_mut();
         let request_id = *counter;
         *counter = counter.checked_add(1).unwrap();
         request_id
     }
 
-    /// Reads next `CastMessage` from the stream.
+    /// Reads next message from the stream.
     ///
     /// # Return value
     ///
-    /// `Result` containing parsed `CastMessage` or `Error`.
-    async fn read(&self) -> Result<CastMessage, Error> {
-        while let Some(maybe_msg) = self.receiver.lock().await.next().await {
-            let mut msg = maybe_msg?;
-            let mut pending_requests = self.pending_requests.borrow_mut();
-            if pending_requests
-                .by_namespace
-                .get(&msg.namespace)
-                .cloned()
-                .unwrap_or_default()
-                > 0
-            {
-                if let CastMessagePayload::String(payload) = msg.payload {
-                    let resp: Request<serde::de::IgnoredAny> = serde_json::from_str(&payload)?;
-                    if let Some(request_id) = NonZeroU32::new(resp.request_id) {
-                        if let Some(pending) = pending_requests.by_request_id.get_mut(&request_id) {
-                            pending.payload = Poll::Ready(Some(payload));
-                            if let Some(ref waker) = pending.waker {
-                                waker.wake_by_ref();
-                            }
-                            continue;
-                        }
-                    }
-                    msg.payload = CastMessagePayload::String(payload);
-                }
+    /// `Result` containing `Read` value or `Error`.
+    async fn read(&self) -> Result<Read, Error> {
+        let mut guard = self.receiver.borrow_mut();
+        if let Some(msg) = guard.next().await.transpose()? {
+            // Explicit drop, otherwise we'd have
+            // receiver > pending_request locks
+            // when poll_reply nests them the other
+            // way, and bad ordering brings deadlocks
+            drop(guard);
+            if let Some(msg) = self.pending_requests.borrow_mut().handle_read(msg)? {
+                Ok(Read::NonReply(msg))
+            } else {
+                Ok(Read::Reply)
             }
-            return Ok(msg);
+        } else {
+            Ok(Read::EndOfStream)
         }
-        // Stream has ended cleanly; Ok(None) would be better
-        // but requires updating callers
-        Err(Error::Io(std::io::Error::from(
-            std::io::ErrorKind::UnexpectedEof,
-        )))
     }
 }

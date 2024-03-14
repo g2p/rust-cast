@@ -258,8 +258,8 @@ impl PendingRequests {
             if let Some(request_id) = NonZeroU32::new(resp.request_id) {
                 if let Some(pending) = self.by_request_id.get_mut(&request_id) {
                     pending.payload = Poll::Ready(payload);
-                    if let Some(ref waker) = pending.waker {
-                        waker.wake_by_ref();
+                    if let Some(waker) = pending.waker.take() {
+                        waker.wake();
                     }
                     *by_ns -= 1;
                     return Ok(None);

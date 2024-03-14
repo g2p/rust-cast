@@ -1,4 +1,5 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::btree_map::{BTreeMap, Entry};
+use std::collections::VecDeque;
 use std::future::poll_fn;
 use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
@@ -215,7 +216,7 @@ impl codec::Encoder<CastMessage> for MessageCodec {
 #[derive(Debug)]
 struct ResponseState {
     waker: Option<Waker>,
-    payload: Poll<Option<String>>,
+    payload: Poll<String>,
 }
 
 impl Default for ResponseState {
@@ -256,8 +257,7 @@ impl PendingRequests {
             let resp: Request<serde::de::IgnoredAny> = serde_json::from_str(&payload)?;
             if let Some(request_id) = NonZeroU32::new(resp.request_id) {
                 if let Some(pending) = self.by_request_id.get_mut(&request_id) {
-                    log::debug!("handle_read saving reply payload");
-                    pending.payload = Poll::Ready(Some(payload));
+                    pending.payload = Poll::Ready(payload);
                     if let Some(ref waker) = pending.waker {
                         waker.wake_by_ref();
                     }
@@ -354,18 +354,21 @@ where
             .borrow_mut()
             .register(message.namespace.to_owned(), request_id);
         self.sender.lock().await.send(cast_message).await?;
-        let payload = poll_fn(|cx| self.poll_reply(cx, request_id)).await.unwrap();
+        let payload = poll_fn(|cx| self.poll_reply(cx, request_id)).await;
         let resp: Request<U> = serde_json::from_str(&payload)?;
         Ok(resp.inner)
     }
 
-    fn poll_reply(&self, cx: &mut Context<'_>, request_id: NonZeroU32) -> Poll<Option<String>> {
+    fn poll_reply(&self, cx: &mut Context<'_>, request_id: NonZeroU32) -> Poll<String> {
         let mut pending_requests = self.pending_requests.borrow_mut();
-        let Some(state) = pending_requests.by_request_id.get_mut(&request_id) else {
-            log::error!("poll_reply unexpected request_id {request_id}");
-            return Poll::Ready(None);
+        let Entry::Occupied(mut entry) = pending_requests.by_request_id.entry(request_id) else {
+            // poll_reply is private, called only from send_get_reply
+            // poll_reply consumes the entry once ready, and
+            // send_get_reply drops the future at that point
+            // request_id is unique, so no confusion between multiple send_get_reply calls
+            unreachable!("poll_reply unexpected request_id {request_id}");
         };
-        log::debug!("poll_reply {request_id} {state:?}");
+        let state = entry.get_mut();
         match state.payload {
             Poll::Pending => {
                 if let Some(ref mut waker) = state.waker {
@@ -385,8 +388,7 @@ where
                 }
                 Poll::Pending
             }
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Ready(ref mut opt) => Poll::Ready(opt.take()),
+            Poll::Ready(_) => entry.remove().payload,
         }
     }
 

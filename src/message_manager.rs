@@ -1,5 +1,4 @@
 use std::collections::btree_map::{BTreeMap, Entry};
-use std::collections::VecDeque;
 use std::future::poll_fn;
 use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
@@ -10,6 +9,7 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio_util::codec;
 
 use crate::{
@@ -84,6 +84,12 @@ impl<T> Lock<T> {
             let guard = self.0.borrow_mut();
             guard
         })
+    }
+}
+
+impl<T> From<T> for Lock<T> {
+    fn from(data: T) -> Self {
+        Self::new(data)
     }
 }
 
@@ -282,11 +288,32 @@ enum Read {
 
 /// Static structure that is responsible for (de)serializing and sending/receiving Cast protocol
 /// messages.
+// Implementation note about locks:
+// For sending, we get a request_id from request_counter,
+// store that in pending_requests, and send the message through sender.
+// That last sender lock can be held across an await, should the sending
+// future be suspended.
+// For receiving, we can be polled from two places.
+// First possibility is receive:
+// message_buffer_recv > (receiver | pending_requests)
+// receive will lock message_buffer_recv,
+// select from the buffer (preferrably) and otherwise return from read.
+// read will get a message from the receiver, drop the receiver lock
+// explicitly, look up the message in pending_requests, and either store it there
+// or return it.
+// Second possibility:
+// pending_requests > receiver
+// When send_get_reply polls for a reply, we look for it in pending_requests
+// and keep the lock.  If it's not there, we want to ensure the receiver
+// is being polled, and poll it ourselves.  We store every ready non-reply message
+// in message_buffer, then once we have one that's a reply, we process it in
+// pending_requests and yield.
 pub struct MessageManager<S>
 where
     S: AsyncWrite + AsyncRead,
 {
-    message_buffer: Lock<VecDeque<Result<CastMessage, Error>>>,
+    message_buffer: UnboundedSender<Result<CastMessage, Error>>,
+    message_buffer_recv: Lock<UnboundedReceiver<Result<CastMessage, Error>>>,
     // Using async mutexes to prevent interleaving; we keep
     // the guard across await points until a frame is entirely handled
     sender: tokio::sync::Mutex<codec::FramedWrite<WriteHalf<S>, MessageCodec>>,
@@ -306,14 +333,16 @@ where
         // was left unmerged.  Also, it may not be as useful
         // if poll_lock takes mut self.
         let (read, write) = tokio::io::split(stream);
-        let receiver = Lock::new(codec::FramedRead::new(read, MessageCodec));
-        let sender = tokio::sync::Mutex::new(codec::FramedWrite::new(write, MessageCodec));
+        let receiver = codec::FramedRead::new(read, MessageCodec).into();
+        let sender = codec::FramedWrite::new(write, MessageCodec).into();
+        let (message_buffer, message_buffer_recv) = unbounded_channel();
         MessageManager {
             sender,
             receiver,
-            message_buffer: Lock::new(VecDeque::new()),
-            request_counter: Lock::new(NonZeroU32::MIN),
-            pending_requests: Lock::new(PendingRequests::default()),
+            message_buffer,
+            message_buffer_recv: message_buffer_recv.into(),
+            request_counter: NonZeroU32::MIN.into(),
+            pending_requests: PendingRequests::default().into(),
         }
     }
 
@@ -381,7 +410,7 @@ where
                         .and_then(|msg| pending_requests.handle_read(msg))
                         .transpose()
                     {
-                        self.message_buffer.borrow_mut().push_back(msgres);
+                        self.message_buffer.send(msgres).unwrap();
                     } else {
                         break;
                     }
@@ -398,16 +427,21 @@ where
     ///
     /// `Result` containing parsed `CastMessage` or `Error`.
     pub async fn receive(&self) -> Result<CastMessage, Error> {
+        let mut message_buffer = self.message_buffer_recv.borrow_mut();
         loop {
-            if let Some(msgres) = self.message_buffer.borrow_mut().pop_front() {
-                return msgres;
-            }
-            match self.read().await? {
-                Read::Reply => (),
-                Read::NonReply(message) => return Ok(message),
-                Read::EndOfStream => {
-                    return Err(Error::Disconnected);
-                }
+            tokio::select! {
+                    biased;
+                    msgresopt = message_buffer.recv() =>
+                        return msgresopt.unwrap(),
+                    readres = self.read() => {
+                        let read = readres?;
+                        match read {
+                            Read::Reply => (),
+                            Read::NonReply(message) => return Ok(message),
+                            Read::EndOfStream =>
+                                return Err(Error::Disconnected),
+                        }
+                    }
             }
         }
     }

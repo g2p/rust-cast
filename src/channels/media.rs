@@ -668,6 +668,30 @@ impl MediaQueue {
     }
 }
 
+/// Similar to MediaQueue, but as a status without items
+#[derive(Clone, Debug)]
+pub struct QueueStatus {
+    /// Array index of the first item to be played
+    /// Starts at zero.
+    pub start_index: u16,
+    /// Was this queue shuffled
+    pub shuffle: bool,
+    /// Will the queue or a track be repeated in a loop
+    pub repeat_mode: RepeatMode,
+}
+
+impl TryFrom<proxies::QueueStatus> for QueueStatus {
+    type Error = Error;
+
+    fn try_from(x: proxies::QueueStatus) -> Result<Self, Error> {
+        Ok(Self {
+            start_index: x.start_index,
+            shuffle: x.shuffle,
+            repeat_mode: RepeatMode::from_str(&x.repeat_mode)?,
+        })
+    }
+}
+
 /// Describes the current status of the media artifact with respect to the session.
 #[derive(Clone, Debug)]
 pub struct Status {
@@ -799,6 +823,8 @@ pub struct StatusEntry {
     /// * `1 << 18` `Unknown`.
     /// Combinations are described as summations; for example, Pause+Seek+StreamVolume+Mute == 15.
     pub supported_media_commands: u32,
+    /// Describes the playback queue (does it repeat or shuffle?)
+    pub queue_data: Option<QueueStatus>,
     /// Will the queue or a track be repeated in a loop
     pub repeat_mode: Option<RepeatMode>,
     /// List of media queue items
@@ -833,6 +859,7 @@ impl TryFrom<proxies::Status> for StatusEntry {
                 .as_deref()
                 .map(RepeatMode::from_str)
                 .transpose()?,
+            queue_data: x.queue_data.map(QueueStatus::try_from).transpose()?,
             items: x
                 .items
                 .map(|items| items.into_iter().map(QueueItem::try_from).collect())

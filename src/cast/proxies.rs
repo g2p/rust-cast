@@ -313,6 +313,17 @@ pub mod media {
     }
 
     #[derive(Deserialize, Debug)]
+    pub struct QueueStatus {
+        #[serde(rename = "repeatMode")]
+        pub repeat_mode: String,
+
+        pub shuffle: bool,
+
+        #[serde(rename = "startIndex")]
+        pub start_index: u16,
+    }
+
+    #[derive(Deserialize, Debug)]
     pub struct ExtendedStatus {
         #[serde(rename = "playerState")]
         pub player_state: String,
@@ -347,6 +358,8 @@ pub mod media {
         pub supported_media_commands: u32,
         #[serde(rename = "repeatMode")]
         pub repeat_mode: Option<String>,
+        #[serde(rename = "queueData")]
+        pub queue_data: Option<QueueStatus>,
         #[serde(default)]
         pub items: Option<Vec<QueueItem>>,
     }

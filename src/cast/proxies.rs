@@ -146,8 +146,10 @@ pub mod media {
         pub custom_data: CustomData,
 
         #[serde(rename = "repeatMode")]
-        #[serde(skip_serializing_if = "String::is_empty")]
-        pub repeat_mode: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub repeat_mode: Option<String>,
+
+        pub shuffle: Option<bool>,
     }
 
     #[derive(Serialize, Debug)]

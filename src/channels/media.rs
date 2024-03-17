@@ -1237,6 +1237,7 @@ where
         destination: S,
         media_session_id: i32,
         repeat_mode: Option<RepeatMode>,
+        shuffle: Option<bool>,
     ) -> Result<StatusEntry, Error>
     where
         S: Into<Cow<'a, str>>,
@@ -1252,7 +1253,8 @@ where
                     typ: MESSAGE_TYPE_QUEUE_UPDATE.to_string(),
                     custom_data: proxies::CustomData::new(),
                     sequence_number: None,
-                    repeat_mode: repeat_mode.map(|e| e.to_string()).unwrap_or_default(),
+                    repeat_mode: repeat_mode.map(|e| e.to_string()),
+                    shuffle,
                 },
             })
             .await?;

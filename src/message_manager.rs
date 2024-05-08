@@ -33,19 +33,6 @@ struct Lock<T>(
     #[cfg(not(feature = "thread_safe"))] std::cell::RefCell<T>,
 );
 
-struct LockGuard<'a, T>(
-    #[cfg(feature = "thread_safe")] std::sync::MutexGuard<'a, T>,
-    #[cfg(not(feature = "thread_safe"))] std::cell::Ref<'a, T>,
-);
-
-impl<'a, T> Deref for LockGuard<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
-    }
-}
-
 struct LockGuardMut<'a, T>(
     #[cfg(feature = "thread_safe")] std::sync::MutexGuard<'a, T>,
     #[cfg(not(feature = "thread_safe"))] std::cell::RefMut<'a, T>,
